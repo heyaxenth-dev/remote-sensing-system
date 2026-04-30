@@ -1,7 +1,7 @@
 import { Stack } from "expo-router";
-import { theme } from "../lib/theme";
+import { theme } from "../../../lib/theme";
 
-export default function RootLayout() {
+export default function OfflineStackLayout() {
   return (
     <Stack
       screenOptions={{
@@ -10,8 +10,8 @@ export default function RootLayout() {
       }}
     >
       <Stack.Screen name="index" />
-      <Stack.Screen name="sign-up" />
-      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="sync" />
+      <Stack.Screen name="map" />
     </Stack>
   );
 }

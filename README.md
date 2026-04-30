@@ -42,6 +42,24 @@ To learn more about developing your project with Expo, look at the following res
 - [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
 - [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
 
+## Supabase login setup
+
+1. Copy `.env.example` to `.env`.
+2. Fill in:
+   - `EXPO_PUBLIC_SUPABASE_URL`
+   - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY` (for seeding demo user)
+3. In your Supabase project, open SQL Editor and run `supabase/schema.sql`.
+4. Create one demo client user automatically:
+
+   ```bash
+   npm run seed:demo-client
+   ```
+
+   Default demo credentials:
+   - Email: `clientdemo@denr-cenro.local`
+   - Password: `ClientDemo123!`
+
 ## Join the community
 
 Join our community of developers creating universal apps.
