@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
 import {
+  Image,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -48,11 +49,16 @@ export default function Index() {
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.container}>
-        <View style={styles.logoCircle}>
-          <Text style={styles.logoLetter}>Y</Text>
+        <View style={styles.hero}>
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={styles.logo}
+            resizeMode="contain"
+            accessibilityLabel="DENR-CENRO logo"
+          />
+          <Text style={styles.brand}>DENR-CENRO</Text>
+          <Text style={styles.tagline}>Field Monitoring System</Text>
         </View>
-        <Text style={styles.brand}>DENR-CENRO</Text>
-        <Text style={styles.tagline}>Field monitoring system</Text>
 
         <View style={styles.card}>
           <Text style={styles.fieldLabel}>Email</Text>
@@ -129,21 +135,17 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     alignItems: "center",
   },
-  logoCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: theme.bgCard,
-    borderWidth: 2,
-    borderColor: theme.accent,
+  hero: {
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
+    width: "100%",
+    maxWidth: 400,
+    marginBottom: 4,
   },
-  logoLetter: {
-    color: theme.accent,
-    fontSize: 28,
-    fontWeight: "800",
+  logo: {
+    width: "72%",
+    maxWidth: 220,
+    height: 88,
+    marginBottom: 20,
   },
   brand: {
     color: theme.accent,
