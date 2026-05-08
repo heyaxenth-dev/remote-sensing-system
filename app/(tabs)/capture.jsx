@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -13,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { analyzeSeedlingCapture } from "../../lib/analyzeCapture";
 import { theme } from "../../lib/theme";
 
@@ -81,7 +81,7 @@ export default function CaptureScreen() {
   }, [aiOn, cameraGranted]);
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={["top"]}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}

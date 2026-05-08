@@ -1,13 +1,13 @@
 import { useRouter } from "expo-router";
 import React from "react";
 import {
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 
@@ -50,7 +50,11 @@ export default function SignUpScreen() {
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
       password,
-      ...(trimmedName ? { options: { data: { full_name: trimmedName } } } : {}),
+      options: {
+        data: {
+          ...(trimmedName ? { full_name: trimmedName } : {}),
+        },
+      },
     });
 
     setIsLoading(false);
@@ -58,6 +62,22 @@ export default function SignUpScreen() {
     if (error) {
       setErrorMessage(error.message);
       return;
+    }
+
+    // When email confirmation is off, we have a session: mirror metadata into public.profiles
+    // (covers missing/outdated triggers and keeps the dashboard in sync).
+    if (data.session?.user && trimmedName) {
+      const { error: profileError } = await supabase.from("profiles").upsert(
+        {
+          id: data.session.user.id,
+          email: normalizedEmail,
+          full_name: trimmedName,
+        },
+        { onConflict: "id" },
+      );
+      if (profileError) {
+        console.warn("[sign-up] profiles upsert:", profileError.message);
+      }
     }
 
     if (data.session) {
@@ -71,7 +91,7 @@ export default function SignUpScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.container}>
         <Text style={styles.brand}>DENR-CENRO</Text>
         <Text style={styles.screenTitle}>Create account</Text>

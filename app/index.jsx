@@ -3,13 +3,13 @@ import { useRouter } from "expo-router";
 import React from "react";
 import {
   Image,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { theme } from "../lib/theme";
 
@@ -31,7 +31,7 @@ export default function Index() {
     setIsLoading(true);
     setErrorMessage("");
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
       password,
     });
@@ -43,11 +43,30 @@ export default function Index() {
       return;
     }
 
+    const user = data?.user ?? data?.session?.user;
+    const metaName =
+      typeof user?.user_metadata?.full_name === "string"
+        ? user.user_metadata.full_name.trim()
+        : "";
+    if (user?.id && metaName) {
+      const { error: profileError } = await supabase.from("profiles").upsert(
+        {
+          id: user.id,
+          email: user.email ?? normalizedEmail,
+          full_name: metaName,
+        },
+        { onConflict: "id" },
+      );
+      if (profileError) {
+        console.warn("[login] profiles upsert:", profileError.message);
+      }
+    }
+
     router.replace("/home");
   };
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.container}>
         <View style={styles.hero}>
           <Image

@@ -25,12 +25,20 @@ class AnalyzeBody(BaseModel):
     image_base64: str = Field(..., min_length=32)
     latitude: float | None = None
     longitude: float | None = None
+    area_m2: float | None = None
+    soil: dict | None = None
 
 
 @app.post("/analyze")
 def analyze(body: AnalyzeBody) -> dict:
     raw = base64.b64decode(body.image_base64)
-    return recommend_from_bytes(raw, body.latitude, body.longitude)
+    return recommend_from_bytes(
+        raw,
+        body.latitude,
+        body.longitude,
+        area_m2=body.area_m2,
+        soil=body.soil,
+    )
 
 
 @app.get("/health")

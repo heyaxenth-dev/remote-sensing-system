@@ -41,13 +41,22 @@ declare
   meta_full_name text;
 begin
   meta_full_name := nullif(
-    trim(coalesce(new.raw_user_meta_data->>'full_name', '')),
+    trim(
+      coalesce(
+        new.raw_user_meta_data->>'full_name',
+        new.raw_user_meta_data->>'name',
+        ''
+      )
+    ),
     ''
   );
 
   insert into public.profiles (id, email, full_name)
   values (new.id, new.email, meta_full_name)
-  on conflict (id) do nothing;
+  on conflict (id) do update
+    set
+      email = excluded.email,
+      full_name = coalesce(nullif(trim(excluded.full_name), ''), public.profiles.full_name);
 
   return new;
 end;
