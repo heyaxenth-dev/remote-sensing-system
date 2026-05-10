@@ -1,81 +1,161 @@
-# Welcome to your Expo app 👋
+# Remote sensing system
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Monorepo for remote sensing / monitoring:
 
-## Get started
+| Module | Path | Stack |
+|--------|------|--------|
+| **Mobile app** | Repository root | Expo (React Native), Expo Router |
+| **Admin dashboard** | `admin/` | Vite, React, Tailwind |
+| **Analysis API** (optional) | `analysis/` | FastAPI, Uvicorn |
 
-1. Install dependencies
+Supabase is shared by the mobile app and the admin UI. Open-Meteo is used for weather (no API key by default).
+
+---
+
+## Full system setup
+
+Follow these steps once per machine so every part of the system has its dependencies and configuration.
+
+### Prerequisites
+
+- **Node.js** 20 LTS or newer (Expo SDK 54 and Vite 6 expect a current Node release).
+- **npm** (comes with Node).
+- **Python 3.10+** only if you run the analysis server or `npm run test:analysis`.
+- A **Supabase** project: project URL, **anon** key, and **service role** key (for seeding only).
+
+### 1. Environment files
+
+1. In the **repository root**, copy the template and fill in Supabase values for the mobile app:
 
    ```bash
-   npm install
+   cp .env.example .env
    ```
 
-2. Start the app
+   Required for the Expo app:
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Supabase login setup
-
-1. Copy `.env.example` to `.env`.
-2. Fill in:
    - `EXPO_PUBLIC_SUPABASE_URL`
    - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY` (for seeding demo user)
-3. In your Supabase project, open SQL Editor and run `supabase/schema.sql` (includes `soil_types` reference rows and `seedling_progress` for monitoring).
-4. Create one demo client user automatically:
+
+   Optional (see `.env.example`):
+
+   - `EXPO_PUBLIC_ANALYZE_API_URL` — point at your analysis API (e.g. `http://127.0.0.1:8000`) when not using on-device analysis.
+   - `EXPO_PUBLIC_OPEN_METEO_FORECAST_URL` — override Open-Meteo forecast endpoint if needed.
+   - `SUPABASE_SERVICE_ROLE_KEY` — only for `npm run seed:demo-client` (never expose in client apps).
+
+2. **Admin app:** Vite only reads variables prefixed with `VITE_`. Create `admin/.env` with the **same** Supabase project as the mobile app:
+
+   ```bash
+   cd admin
+   cp ../.env.example .env
+   ```
+
+   Then set at least:
+
+   - `VITE_SUPABASE_URL` (same value as `EXPO_PUBLIC_SUPABASE_URL`)
+   - `VITE_SUPABASE_ANON_KEY` (same value as `EXPO_PUBLIC_SUPABASE_ANON_KEY`)
+
+   Remove or ignore Expo-only keys in `admin/.env` if you prefer a minimal file; only `VITE_*` entries are used there.
+
+### 2. Install JavaScript dependencies
+
+**Mobile (root):**
+
+```bash
+npm install
+```
+
+**Admin dashboard:**
+
+```bash
+cd admin
+npm install
+cd ..
+```
+
+Each package tree is independent (`package-lock.json` at root and under `admin/`).
+
+### 3. Supabase schema and optional demo user
+
+1. In the Supabase dashboard, open **SQL Editor** and run `supabase/schema.sql` (reference data such as `soil_types`, monitoring tables such as `seedling_progress`, etc.).
+
+2. To create the demo client user, set `SUPABASE_SERVICE_ROLE_KEY` in the root `.env`, then from the **repository root**:
 
    ```bash
    npm run seed:demo-client
    ```
 
    Default demo credentials:
+
    - Email: `clientdemo@denr-cenro.local`
    - Password: `ClientDemo123!`
 
-## Weather & recommendation API
+### 4. Python analysis API (optional)
 
-- **Dashboard + GrowCalendar-style scoring** use [Open-Meteo](https://open-meteo.com/) (free tier, **no API key**). Defaults are set in code; optional overrides:
-  - **Expo:** `EXPO_PUBLIC_OPEN_METEO_FORECAST_URL`
-  - **Python analyzer:** `OPEN_METEO_FORECAST_URL`
-- **Remote scene analysis:** run `npm run analyze-server` and set `EXPO_PUBLIC_ANALYZE_API_URL` (e.g. `http://127.0.0.1:8000`). If unset, analysis runs **on-device** with the same heuristics.
+Used for remote scene analysis when `EXPO_PUBLIC_ANALYZE_API_URL` is set. If it is unset, the mobile app uses on-device heuristics.
+
+```bash
+cd analysis
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cd ..
+```
+
+Start the server from the **repository root**:
+
+```bash
+npm run analyze-server
+```
+
+Dependencies are listed in `analysis/requirements.txt` (FastAPI, Uvicorn, Pillow, Pydantic). Optional env for the Python side: `OPEN_METEO_FORECAST_URL` (see `.env.example`).
+
+### 5. Run the apps
+
+| What | Command | From |
+|------|---------|------|
+| Mobile (Expo) | `npx expo start` | Repository root |
+| Admin UI | `npm run dev` | `admin/` |
+| Analysis API | `npm run analyze-server` | Repository root (after Python venv + `pip install`) |
+
+---
+
+## Quick start (mobile only)
+
+If you only need the Expo app and already have root `.env` configured:
+
+```bash
+npm install
+npx expo start
+```
+
+Use the Expo CLI output to open Android emulator, iOS simulator, Expo Go, or web.
+
+This project uses [file-based routing](https://docs.expo.dev/router/introduction) under the `app` directory.
+
+## Weather and recommendations
+
+- **Dashboard and GrowCalendar-style scoring** use [Open-Meteo](https://open-meteo.com/) (free tier, no API key by default). Override with `EXPO_PUBLIC_OPEN_METEO_FORECAST_URL` (Expo) or `OPEN_METEO_FORECAST_URL` (Python analyzer) if you proxy or self-host.
 
 ## Tests
+
+Analysis unit tests (Python):
 
 ```bash
 npm run test:analysis
 ```
 
-## Join the community
+## Fresh Expo scaffold
 
-Join our community of developers creating universal apps.
+When you want to reset the starter layout:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npm run reset-project
+```
+
+This moves starter code to **app-example** and creates a blank **app** directory.
+
+## Learn more
+
+- [Expo documentation](https://docs.expo.dev/)
+- [Expo on GitHub](https://github.com/expo/expo)
+- [Discord community](https://chat.expo.dev)
