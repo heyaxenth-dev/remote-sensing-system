@@ -8,6 +8,12 @@ import { theme } from "../../lib/theme";
 const TAB_CONFIG = [
   { name: "home", title: "Home", icon: "home", iconOutline: "home-outline" },
   { name: "capture", title: "Capture", icon: "camera", iconOutline: "camera-outline" },
+  {
+    name: "seedling-progress",
+    title: "Progress",
+    icon: "leaf",
+    iconOutline: "leaf-outline",
+  },
   { name: "offline", title: "Offline", icon: "cloud-offline", iconOutline: "cloud-offline-outline" },
   { name: "settings", title: "Settings", icon: "settings", iconOutline: "settings-outline" },
 ];
@@ -74,6 +80,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="home" options={{ title: "Home" }} />
       <Tabs.Screen name="capture" options={{ title: "Capture" }} />
+      <Tabs.Screen name="seedling-progress" options={{ title: "Progress" }} />
       <Tabs.Screen name="offline" options={{ title: "Offline" }} />
       <Tabs.Screen name="settings" options={{ title: "Settings" }} />
     </Tabs>

@@ -1,10 +1,43 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { DropdownItem } from "../ui/dropdown/DropdownItem";
 import { Dropdown } from "../ui/dropdown/Dropdown";
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
+import type { User } from "@supabase/supabase-js";
+import { useAuth } from "../../context/AuthContext";
+
+function initialsFromUser(user: User | null): string {
+  const meta = user?.user_metadata?.full_name;
+  if (typeof meta === "string" && meta.trim()) {
+    const parts = meta.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (
+        (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      );
+    }
+    return meta.trim().slice(0, 2).toUpperCase();
+  }
+  const email = user?.email ?? "";
+  if (email.length >= 2) {
+    return email.slice(0, 2).toUpperCase();
+  }
+  return "—";
+}
+
+function displayName(user: User | null): string {
+  const meta = user?.user_metadata?.full_name;
+  if (typeof meta === "string" && meta.trim()) {
+    return meta.trim();
+  }
+  return user?.email ?? "Signed in";
+}
 
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
+
+  const label = useMemo(() => displayName(user), [user]);
+  const initials = useMemo(() => initialsFromUser(user), [user]);
 
   function toggleDropdown() {
     setIsOpen(!isOpen);
@@ -13,6 +46,13 @@ export default function UserDropdown() {
   function closeDropdown() {
     setIsOpen(false);
   }
+
+  async function handleSignOut() {
+    closeDropdown();
+    await signOut();
+    navigate("/signin", { replace: true });
+  }
+
   return (
     <div className="relative">
       <button
@@ -20,10 +60,12 @@ export default function UserDropdown() {
         className="flex items-center text-gray-700 dropdown-toggle dark:text-gray-400"
       >
         <span className="mr-3 flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-lime-500/20 text-sm font-semibold text-lime-200">
-          AD
+          {initials}
         </span>
 
-        <span className="block mr-1 font-medium text-theme-sm">Admin</span>
+        <span className="block mr-1 max-w-[140px] truncate font-medium text-theme-sm">
+          {label}
+        </span>
         <svg
           className={`stroke-gray-500 dark:stroke-gray-400 transition-transform duration-200 ${
             isOpen ? "rotate-180" : ""
@@ -51,11 +93,13 @@ export default function UserDropdown() {
       >
         <div>
           <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
-            Admin
+            {label}
           </span>
-          <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-            CENRO Kalibo
-          </span>
+          {user?.email ? (
+            <span className="mt-0.5 block truncate text-theme-xs text-gray-500 dark:text-gray-400">
+              {user.email}
+            </span>
+          ) : null}
         </div>
 
         <ul className="flex flex-col gap-1 pt-4 pb-3 border-b border-gray-200 dark:border-gray-800">
@@ -135,9 +179,10 @@ export default function UserDropdown() {
             </DropdownItem>
           </li>
         </ul>
-        <Link
-          to="/signin"
-          className="flex items-center gap-3 px-3 py-2 mt-3 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
+        <DropdownItem
+          onItemClick={closeDropdown}
+          onClick={() => void handleSignOut()}
+          className="mt-3 flex items-center gap-3 rounded-lg px-3 py-2 font-medium text-gray-700 group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
         >
           <svg
             className="fill-gray-500 group-hover:fill-gray-700 dark:group-hover:fill-gray-300"
@@ -155,7 +200,7 @@ export default function UserDropdown() {
             />
           </svg>
           Sign out
-        </Link>
+        </DropdownItem>
       </Dropdown>
     </div>
   );

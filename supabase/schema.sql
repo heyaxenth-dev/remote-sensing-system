@@ -88,3 +88,60 @@ drop trigger if exists on_auth_user_updated on auth.users;
 create trigger on_auth_user_updated
 after update of email on auth.users
 for each row execute function public.handle_auth_user_updated();
+
+-- Regional soil reference rows for recommendation context (bounding boxes on WGS84).
+create table if not exists public.soil_types (
+  id uuid primary key default gen_random_uuid(),
+  region_label text not null,
+  ph numeric not null,
+  drainage text not null check (drainage in ('poor','medium','good')),
+  texture text not null check (texture in ('sandy','loam','clay')),
+  lat_min double precision not null,
+  lat_max double precision not null,
+  lon_min double precision not null,
+  lon_max double precision not null
+);
+
+alter table public.soil_types enable row level security;
+
+create policy "Authenticated users can read soil_types"
+on public.soil_types
+for select
+to authenticated
+using (true);
+
+insert into public.soil_types (region_label, ph, drainage, texture, lat_min, lat_max, lon_min, lon_max)
+select 'Western Visayas sample loam', 6.4, 'medium', 'loam', 10.5, 12.5, 121.0, 123.5
+where not exists (
+  select 1 from public.soil_types where region_label = 'Western Visayas sample loam'
+);
+
+insert into public.soil_types (region_label, ph, drainage, texture, lat_min, lat_max, lon_min, lon_max)
+select 'Philippines default reference', 6.3, 'medium', 'loam', -90, 90, -180, 180
+where not exists (
+  select 1 from public.soil_types where region_label = 'Philippines default reference'
+);
+
+-- Field officer tracking for selected seedlings (simple CRUD / status updates).
+create table if not exists public.seedling_progress (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  seedling_id text not null,
+  common_name text,
+  scientific_name text,
+  status text not null default 'planned',
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists seedling_progress_user_idx
+  on public.seedling_progress (user_id);
+
+alter table public.seedling_progress enable row level security;
+
+create policy "Users manage own seedling_progress"
+on public.seedling_progress
+for all
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);

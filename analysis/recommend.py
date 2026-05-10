@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import urllib.parse
 import urllib.request
 from io import BytesIO
@@ -11,6 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
+
+OPEN_METEO_FORECAST_URL = os.environ.get(
+    "OPEN_METEO_FORECAST_URL", "https://api.open-meteo.com/v1/forecast"
+)
 
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "seedling-catalog.json"
 
@@ -65,7 +70,7 @@ def _fetch_weather_signals(latitude: float, longitude: float) -> dict[str, float
                 "current": "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m",
             }
         )
-        url = f"https://api.open-meteo.com/v1/forecast?{qs}"
+        url = f"{OPEN_METEO_FORECAST_URL}?{qs}"
         with urllib.request.urlopen(url, timeout=5) as resp:  # nosec - fixed host
             payload = json.loads(resp.read().decode("utf-8"))
 
@@ -199,6 +204,8 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
     greenish = 0
     sum_r = sum_g = sum_b = 0.0
     sum_lum = 0.0
+    sum_lum2 = 0.0
+    sum_chroma = 0.0
 
     px = img_small.load()
     for y in range(0, h, stride):
@@ -210,6 +217,10 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
             sum_b += b
             lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
             sum_lum += lum
+            sum_lum2 += lum * lum
+            mx = max(r, g, b)
+            mn = min(r, g, b)
+            sum_chroma += (mx - mn) / 255.0
             if g > r + 12 and g > b + 12:
                 greenish += 1
 
@@ -220,6 +231,9 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
             "moistureHint": 0.5,
             "greenRatio": 0.0,
             "meanLuminance": 0.5,
+            "concreteLikelihood": 0.5,
+            "surfaceChroma": 0.5,
+            "luminanceStd": 0.2,
         }
 
     green_ratio = greenish / total
@@ -227,10 +241,23 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
     mean_g = sum_g / total
     mean_b = sum_b / total
     mean_lum = sum_lum / total
+    var_lum = max(0.0, sum_lum2 / total - mean_lum * mean_lum)
+    lum_std = math.sqrt(var_lum)
+    mean_chroma = sum_chroma / total
     denom = max(1.0, mean_r + mean_g + mean_b)
     open_sun = _clamp01(mean_lum * 0.65 + (1.0 - green_ratio) * 0.35)
     moisture = _clamp01(
         (mean_b / denom) * 3 * 0.42 + green_ratio * 0.33 + mean_lum * 0.25
+    )
+
+    # Uniform / low-chroma scenes (concrete, asphalt, painted flat surfaces).
+    uniformity = _clamp01(1.0 - min(1.0, lum_std * 4.0))
+    gray_band = _clamp01(1.0 - abs(mean_lum - 0.48) / 0.38)
+    concrete_likelihood = _clamp01(
+        (1.0 - green_ratio) * 0.38
+        + (1.0 - mean_chroma) * 0.32
+        + uniformity * 0.22
+        + gray_band * 0.18
     )
 
     return {
@@ -239,6 +266,9 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
         "moistureHint": moisture,
         "greenRatio": _clamp01(green_ratio),
         "meanLuminance": _clamp01(mean_lum),
+        "concreteLikelihood": concrete_likelihood,
+        "surfaceChroma": _clamp01(mean_chroma),
+        "luminanceStd": float(min(1.0, lum_std * 2.5)),
     }
 
 
@@ -270,6 +300,28 @@ def _to_public(seedling: dict[str, Any]) -> dict[str, str]:
         "scientificName": seedling["scientificName"],
         "notes": seedling["notes"],
     }
+
+
+def _unsuitable_for_planting(signals: dict[str, float]) -> tuple[bool, str]:
+    veg = float(signals.get("vegetationIndex", 0.0))
+    conc = float(signals.get("concreteLikelihood", 0.0))
+    if conc >= 0.68 and veg < 0.12:
+        return (
+            True,
+            "This capture looks like hardscape (concrete/asphalt): very low vegetation "
+            "and flat, low-color cues. Seedlings need soil—not paved surfaces.",
+        )
+    if conc >= 0.78:
+        return (
+            True,
+            "Surface cues strongly resemble concrete or other impervious cover. "
+            "A seedling recommendation cannot be generated for this scene.",
+        )
+    return False, ""
+
+
+def _match_percent(penalty: float, max_p: float) -> int:
+    return int(round(100.0 * _clamp01(1.0 - penalty / (max_p * 1.35))))
 
 
 def _rationale(signals: dict[str, float], top: dict[str, Any]) -> str:
@@ -313,21 +365,47 @@ def recommend_from_bytes(
     img = Image.open(BytesIO(image_bytes))
     signals = compute_signals_from_image(img)
 
-    # Environment signals
+    # Environment signals (GrowCalendar-style context: weather + declared soil/area).
     if latitude is not None and longitude is not None:
         signals |= _fetch_weather_signals(latitude, longitude)
     signals |= _compute_area_soil_signals(area_m2=area_m2, soil=soil)
 
-    items = [(s, _penalty(s, signals)) for s in catalog["seedlings"]]
-    items.sort(key=lambda x: x[1])
-    max_p = max((p for _, p in items), default=1e-6)
-    best, best_p = items[0]
+    penalties = [(s, _penalty(s, signals)) for s in catalog["seedlings"]]
+    penalties.sort(key=lambda x: x[1])
+    max_p = max((p for _, p in penalties), default=1e-6)
+    ranked_seedlings = [
+        {"seedling": _to_public(s), "matchPercent": _match_percent(p, max_p)}
+        for s, p in penalties
+    ]
+
+    unsuitable, unsuitable_reason = _unsuitable_for_planting(signals)
+    if unsuitable:
+        out: dict[str, Any] = {
+            "source": "remote",
+            "unsuitableForPlanting": True,
+            "unsuitableReason": unsuitable_reason,
+            "recommended": None,
+            "alternatives": [],
+            "rankedSeedlings": [],
+            "confidence": 0.0,
+            "rationale": unsuitable_reason,
+            "signals": {**signals},
+        }
+        if latitude is not None and longitude is not None:
+            out["signals"]["latitude"] = latitude
+            out["signals"]["longitude"] = longitude
+        return out
+
+    best, best_p = penalties[0]
     confidence = _clamp01(1.0 - best_p / (max_p * 1.35))
 
     out = {
         "source": "remote",
+        "unsuitableForPlanting": False,
+        "unsuitableReason": None,
         "recommended": _to_public(best),
-        "alternatives": [_to_public(s) for s, _ in items[1:4]],
+        "alternatives": [_to_public(s) for s, _ in penalties[1:4]],
+        "rankedSeedlings": ranked_seedlings,
         "confidence": confidence,
         "rationale": _rationale(signals, best),
         "signals": {**signals},

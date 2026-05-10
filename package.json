@@ -9,6 +9,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test:analysis": "cd analysis && python3 -m unittest discover -v",
     "analyze-server": "cd analysis && python3 -m uvicorn server:app --host 0.0.0.0 --port 8000",
     "seed:demo-client": "node ./scripts/seed-demo-client.mjs"
   },

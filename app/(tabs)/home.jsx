@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from '../../lib/supabase';
+import { SURVEY_LATITUDE, SURVEY_LONGITUDE } from '../../lib/surveyLocation';
 import { theme } from '../../lib/theme';
+import { fetchWeatherForDashboard } from '../../lib/weather';
 
 const QUICK_ACTIONS = [
 	{
@@ -21,6 +23,13 @@ const QUICK_ACTIONS = [
 		route: '/capture',
 		icon: 'grid-outline',
 		highlighted: true,
+	},
+	{
+		key: 'progress',
+		label: 'Seedling\nprogress',
+		route: '/seedling-progress',
+		icon: 'leaf-outline',
+		highlighted: false,
 	},
 	{
 		key: 'offline',
@@ -49,6 +58,8 @@ export default function HomeScreen() {
 	const router = useRouter();
 	const [menuOpen, setMenuOpen] = React.useState(false);
 	const [displayName, setDisplayName] = React.useState('Field officer');
+	const [weatherLine, setWeatherLine] = React.useState(null);
+	const [weatherLoading, setWeatherLoading] = React.useState(true);
 
 	React.useEffect(() => {
 		let cancelled = false;
@@ -61,6 +72,24 @@ export default function HomeScreen() {
 				data.user.email?.split('@')[0] ||
 				'Field officer';
 			setDisplayName(name);
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	React.useEffect(() => {
+		let cancelled = false;
+		(async () => {
+			setWeatherLoading(true);
+			const w = await fetchWeatherForDashboard(
+				SURVEY_LATITUDE,
+				SURVEY_LONGITUDE,
+			);
+			if (cancelled) return;
+			if (w.ok) setWeatherLine(w.summary);
+			else setWeatherLine('Weather unavailable');
+			setWeatherLoading(false);
 		})();
 		return () => {
 			cancelled = true;
@@ -83,6 +112,21 @@ export default function HomeScreen() {
 						accessibilityLabel="Open menu">
 						<Ionicons name="menu" size={26} color={theme.text} />
 					</TouchableOpacity>
+				</View>
+
+				<View style={styles.weatherCard}>
+					<View style={styles.weatherHeader}>
+						<Text style={styles.weatherTitle}>Survey location weather</Text>
+						<Text style={styles.weatherCoords}>
+							{SURVEY_LATITUDE.toFixed(2)}°N · {SURVEY_LONGITUDE.toFixed(2)}°E
+						</Text>
+					</View>
+					<Text style={styles.weatherBody}>
+						{weatherLoading ? 'Loading conditions…' : weatherLine}
+					</Text>
+					<Text style={styles.weatherFoot}>
+						Open-Meteo (no API key). Matches recommendation weather signals.
+					</Text>
 				</View>
 
 				<Text style={styles.sectionTitle}>Quick actions</Text>
@@ -157,6 +201,14 @@ export default function HomeScreen() {
 							style={styles.menuItem}
 							onPress={() => {
 								setMenuOpen(false);
+								router.push('/seedling-progress');
+							}}>
+							<Text style={styles.menuItemText}>Seedling progress</Text>
+						</TouchableOpacity>
+						<TouchableOpacity
+							style={styles.menuItem}
+							onPress={() => {
+								setMenuOpen(false);
 								router.push('/offline');
 							}}>
 							<Text style={styles.menuItemText}>
@@ -218,6 +270,46 @@ const styles = StyleSheet.create({
 		maxWidth: 280,
 	},
 	iconBtn: { padding: 4 },
+	weatherCard: {
+		backgroundColor: theme.bgCard,
+		borderRadius: 16,
+		borderWidth: 1,
+		borderColor: theme.border,
+		padding: 16,
+		marginBottom: 20,
+	},
+	weatherHeader: {
+		flexDirection: 'row',
+		justifyContent: 'space-between',
+		alignItems: 'flex-start',
+		marginBottom: 8,
+		gap: 12,
+	},
+	weatherTitle: {
+		color: theme.text,
+		fontSize: 15,
+		fontWeight: '800',
+		flex: 1,
+	},
+	weatherCoords: {
+		color: theme.textMuted,
+		fontSize: 11,
+		fontWeight: '600',
+		textAlign: 'right',
+		maxWidth: 120,
+	},
+	weatherBody: {
+		color: theme.text,
+		fontSize: 14,
+		lineHeight: 20,
+		fontWeight: '600',
+	},
+	weatherFoot: {
+		color: theme.textMuted,
+		fontSize: 11,
+		marginTop: 10,
+		lineHeight: 16,
+	},
 	sectionTitle: {
 		color: theme.textMuted,
 		fontSize: 13,

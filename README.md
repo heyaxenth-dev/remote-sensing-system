@@ -49,7 +49,7 @@ To learn more about developing your project with Expo, look at the following res
    - `EXPO_PUBLIC_SUPABASE_URL`
    - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY` (for seeding demo user)
-3. In your Supabase project, open SQL Editor and run `supabase/schema.sql`.
+3. In your Supabase project, open SQL Editor and run `supabase/schema.sql` (includes `soil_types` reference rows and `seedling_progress` for monitoring).
 4. Create one demo client user automatically:
 
    ```bash
@@ -59,6 +59,19 @@ To learn more about developing your project with Expo, look at the following res
    Default demo credentials:
    - Email: `clientdemo@denr-cenro.local`
    - Password: `ClientDemo123!`
+
+## Weather & recommendation API
+
+- **Dashboard + GrowCalendar-style scoring** use [Open-Meteo](https://open-meteo.com/) (free tier, **no API key**). Defaults are set in code; optional overrides:
+  - **Expo:** `EXPO_PUBLIC_OPEN_METEO_FORECAST_URL`
+  - **Python analyzer:** `OPEN_METEO_FORECAST_URL`
+- **Remote scene analysis:** run `npm run analyze-server` and set `EXPO_PUBLIC_ANALYZE_API_URL` (e.g. `http://127.0.0.1:8000`). If unset, analysis runs **on-device** with the same heuristics.
+
+## Tests
+
+```bash
+npm run test:analysis
+```
 
 ## Join the community
 
