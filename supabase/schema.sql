@@ -145,3 +145,38 @@ on public.seedling_progress
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
+
+-- Mobile field captures + monitor picks (read by admin dashboard; open policies — anon key only).
+create table if not exists public.monitoring_submissions (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  event_type text not null check (event_type in ('scene_analysis', 'monitor_seedling')),
+  latitude double precision not null,
+  longitude double precision not null,
+  estimated_seedlings_needed integer not null,
+  seedling_id text,
+  common_name text,
+  scientific_name text,
+  confidence numeric,
+  rationale text,
+  unsuitable_for_planting boolean not null default false,
+  raw_analysis jsonb,
+  image_url text
+);
+
+create index if not exists monitoring_submissions_created_idx
+  on public.monitoring_submissions (created_at desc);
+
+alter table public.monitoring_submissions enable row level security;
+
+create policy "Anyone can insert monitoring_submissions"
+on public.monitoring_submissions
+for insert
+to anon, authenticated
+with check (true);
+
+create policy "Anyone can read monitoring_submissions"
+on public.monitoring_submissions
+for select
+to anon, authenticated
+using (true);

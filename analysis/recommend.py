@@ -353,6 +353,20 @@ def _rationale(signals: dict[str, float], top: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+_DEFAULT_CAPTURE_AREA_M2 = 250.0
+_SEEDLING_SPACING_M2 = 4.0
+
+
+def _estimated_seedlings_needed(signals: dict[str, Any]) -> int:
+    """Heuristic stocking count from assessed plot area (~2 m × 2 m spacing when area is known)."""
+    raw = signals.get("areaM2")
+    try:
+        area = float(raw) if raw is not None else _DEFAULT_CAPTURE_AREA_M2
+    except (TypeError, ValueError):
+        area = _DEFAULT_CAPTURE_AREA_M2
+    return max(1, int(math.ceil(area / _SEEDLING_SPACING_M2)))
+
+
 def recommend_from_bytes(
     image_bytes: bytes,
     latitude: float | None,
@@ -394,6 +408,7 @@ def recommend_from_bytes(
         if latitude is not None and longitude is not None:
             out["signals"]["latitude"] = latitude
             out["signals"]["longitude"] = longitude
+        out["estimatedSeedlingsNeeded"] = _estimated_seedlings_needed(out["signals"])
         return out
 
     best, best_p = penalties[0]
@@ -413,4 +428,5 @@ def recommend_from_bytes(
     if latitude is not None and longitude is not None:
         out["signals"]["latitude"] = latitude
         out["signals"]["longitude"] = longitude
+    out["estimatedSeedlingsNeeded"] = _estimated_seedlings_needed(out["signals"])
     return out

@@ -15,6 +15,10 @@ import {
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { analyzeSeedlingCapture } from "../../lib/analyzeCapture";
+import {
+  insertMonitorSeedlingSubmission,
+  insertSceneAnalysisSubmission,
+} from "../../lib/monitoringSubmissions";
 import { SURVEY_LATITUDE, SURVEY_LONGITUDE } from "../../lib/surveyLocation";
 import { supabase } from "../../lib/supabase";
 import { theme } from "../../lib/theme";
@@ -89,6 +93,15 @@ export default function CaptureScreen() {
         longitude: SURVEY_LONGITUDE,
       });
       setRecommendation(result);
+      try {
+        await insertSceneAnalysisSubmission({
+          latitude: SURVEY_LATITUDE,
+          longitude: SURVEY_LONGITUDE,
+          recommendation: result,
+        });
+      } catch (persistErr) {
+        console.warn("[capture] scene_analysis DB:", persistErr);
+      }
     } catch (e) {
       const message = e?.message || "Something went wrong.";
       Alert.alert("Capture & analyze", message);
@@ -98,35 +111,31 @@ export default function CaptureScreen() {
   }, [aiOn, cameraGranted]);
 
   const monitorSeedling = React.useCallback(
-    async (seedling) => {
+    async (seedling, recommendationSnapshot) => {
       if (!seedling?.id) return;
       try {
+        await insertMonitorSeedlingSubmission({
+          latitude: SURVEY_LATITUDE,
+          longitude: SURVEY_LONGITUDE,
+          seedling,
+          recommendation: recommendationSnapshot,
+        });
+
         const {
           data: { session },
-          error: sessionError,
         } = await supabase.auth.getSession();
-        if (sessionError || !session?.user?.id) {
-          Alert.alert("Sign in required", "Log in to save seedling progress.");
-          return;
-        }
-        const { data, error } = await supabase
-          .from("seedling_progress")
-          .insert({
+        if (session?.user?.id) {
+          const { error } = await supabase.from("seedling_progress").insert({
             user_id: session.user.id,
             seedling_id: seedling.id,
             common_name: seedling.commonName ?? null,
             scientific_name: seedling.scientificName ?? null,
             status: "planned",
             notes: "",
-          })
-          .select("id")
-          .single();
-        if (error) throw error;
-        if (!data?.id) {
-          throw new Error(
-            "Insert did not return a row. Check Supabase URL, policies, and network.",
-          );
+          });
+          if (error) console.warn("[capture] seedling_progress:", error.message);
         }
+
         router.push("/seedling-progress");
       } catch (e) {
         Alert.alert("Could not save", e?.message ?? "Try again.");
@@ -314,7 +323,9 @@ export default function CaptureScreen() {
                 <Text style={styles.recoRationale}>{recommendation.rationale}</Text>
                 <TouchableOpacity
                   style={styles.monitorBtn}
-                  onPress={() => monitorSeedling(selectedRankRow.seedling)}
+                  onPress={() =>
+                    monitorSeedling(selectedRankRow.seedling, recommendation)
+                  }
                   activeOpacity={0.9}
                 >
                   <Text style={styles.monitorBtnText}>Monitor this seedling</Text>
@@ -353,7 +364,9 @@ export default function CaptureScreen() {
             ) : null}
             <TouchableOpacity
               style={styles.monitorBtn}
-              onPress={() => monitorSeedling(recommendation.recommended)}
+              onPress={() =>
+                monitorSeedling(recommendation.recommended, recommendation)
+              }
               activeOpacity={0.9}
             >
               <Text style={styles.monitorBtnText}>Monitor this seedling</Text>

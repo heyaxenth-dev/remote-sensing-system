@@ -1,18 +1,16 @@
+import type { User } from "@supabase/supabase-js";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { useAuth } from "../../context/AuthContext";
 import { DropdownItem } from "../ui/dropdown/DropdownItem";
 import { Dropdown } from "../ui/dropdown/Dropdown";
-import { useNavigate } from "react-router";
-import type { User } from "@supabase/supabase-js";
-import { useAuth } from "../../context/AuthContext";
 
 function initialsFromUser(user: User | null): string {
   const meta = user?.user_metadata?.full_name;
   if (typeof meta === "string" && meta.trim()) {
     const parts = meta.trim().split(/\s+/).filter(Boolean);
     if (parts.length >= 2) {
-      return (
-        (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-      );
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
     return meta.trim().slice(0, 2).toUpperCase();
   }
@@ -20,7 +18,7 @@ function initialsFromUser(user: User | null): string {
   if (email.length >= 2) {
     return email.slice(0, 2).toUpperCase();
   }
-  return "—";
+  return "AD";
 }
 
 function displayName(user: User | null): string {
@@ -28,7 +26,7 @@ function displayName(user: User | null): string {
   if (typeof meta === "string" && meta.trim()) {
     return meta.trim();
   }
-  return user?.email ?? "Signed in";
+  return user?.email ?? "Admin";
 }
 
 export default function UserDropdown() {
@@ -53,21 +51,28 @@ export default function UserDropdown() {
     navigate("/signin", { replace: true });
   }
 
+  const itemClass =
+    "flex w-full items-center gap-3 px-3 py-2 text-left font-medium text-gray-800 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300";
+
+  const signOutClass =
+    "mt-3 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left font-medium text-gray-800 group text-theme-sm hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300";
+
   return (
     <div className="relative">
       <button
+        type="button"
         onClick={toggleDropdown}
-        className="flex items-center text-gray-700 dropdown-toggle dark:text-gray-400"
+        className="dropdown-toggle flex items-center text-gray-700 dark:text-gray-400"
       >
-        <span className="mr-3 flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-lime-500/20 text-sm font-semibold text-lime-200">
+        <span className="mr-3 flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-lime-500/20 text-sm font-semibold text-lime-700 dark:text-lime-200">
           {initials}
         </span>
 
-        <span className="block mr-1 max-w-[140px] truncate font-medium text-theme-sm">
+        <span className="mr-1 hidden max-w-[140px] truncate font-medium text-theme-sm sm:block">
           {label}
         </span>
         <svg
-          className={`stroke-gray-500 dark:stroke-gray-400 transition-transform duration-200 ${
+          className={`stroke-gray-600 transition-transform duration-200 dark:stroke-gray-400 ${
             isOpen ? "rotate-180" : ""
           }`}
           width="18"
@@ -92,26 +97,31 @@ export default function UserDropdown() {
         className="absolute right-0 mt-[17px] flex w-[260px] flex-col rounded-2xl border border-gray-200 bg-white p-3 shadow-theme-lg dark:border-gray-800 dark:bg-gray-dark"
       >
         <div>
-          <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
+          <span className="block font-medium text-gray-800 text-theme-sm dark:text-gray-400">
             {label}
           </span>
           {user?.email ? (
-            <span className="mt-0.5 block truncate text-theme-xs text-gray-500 dark:text-gray-400">
+            <span className="mt-0.5 block truncate text-theme-xs text-gray-600 dark:text-gray-500">
               {user.email}
             </span>
-          ) : null}
+          ) : (
+            <span className="mt-0.5 block text-theme-xs text-gray-600 dark:text-gray-500">
+              Administrator
+            </span>
+          )}
         </div>
 
-        <ul className="flex flex-col gap-1 pt-4 pb-3 border-b border-gray-200 dark:border-gray-800">
+        <ul className="flex flex-col gap-1 border-b border-gray-200 pt-4 pb-3 dark:border-gray-800">
           <li>
             <DropdownItem
               onItemClick={closeDropdown}
               tag="a"
               to="/users"
-              className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
+              baseClassName=""
+              className={itemClass}
             >
               <svg
-                className="fill-gray-500 group-hover:fill-gray-700 dark:fill-gray-400 dark:group-hover:fill-gray-300"
+                className="fill-gray-500 group-hover:fill-gray-800 dark:fill-gray-400 dark:group-hover:fill-gray-300"
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
@@ -133,10 +143,11 @@ export default function UserDropdown() {
               onItemClick={closeDropdown}
               tag="a"
               to="/settings"
-              className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
+              baseClassName=""
+              className={itemClass}
             >
               <svg
-                className="fill-gray-500 group-hover:fill-gray-700 dark:fill-gray-400 dark:group-hover:fill-gray-300"
+                className="fill-gray-500 group-hover:fill-gray-800 dark:fill-gray-400 dark:group-hover:fill-gray-300"
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
@@ -158,10 +169,11 @@ export default function UserDropdown() {
               onItemClick={closeDropdown}
               tag="a"
               to="/"
-              className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
+              baseClassName=""
+              className={itemClass}
             >
               <svg
-                className="fill-gray-500 group-hover:fill-gray-700 dark:fill-gray-400 dark:group-hover:fill-gray-300"
+                className="fill-gray-500 group-hover:fill-gray-800 dark:fill-gray-400 dark:group-hover:fill-gray-300"
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
@@ -179,13 +191,15 @@ export default function UserDropdown() {
             </DropdownItem>
           </li>
         </ul>
+
         <DropdownItem
           onItemClick={closeDropdown}
           onClick={() => void handleSignOut()}
-          className="mt-3 flex items-center gap-3 rounded-lg px-3 py-2 font-medium text-gray-700 group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
+          baseClassName=""
+          className={signOutClass}
         >
           <svg
-            className="fill-gray-500 group-hover:fill-gray-700 dark:group-hover:fill-gray-300"
+            className="fill-gray-500 group-hover:fill-gray-800 dark:fill-gray-400 dark:group-hover:fill-gray-300"
             width="24"
             height="24"
             viewBox="0 0 24 24"
