@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router";
 import GuestOnly from "./components/auth/GuestOnly";
+import RequireAuth from "./components/auth/RequireAuth";
 import NotFound from "./pages/OtherPage/NotFound";
 import AppLayout from "./layout/AppLayout";
 import { ScrollToTop } from "./components/common/ScrollToTop";
@@ -16,12 +17,14 @@ export default function App() {
       <Router>
         <ScrollToTop />
         <Routes>
-          <Route element={<AppLayout />}>
-            <Route index path="/" element={<LocationAnalytics />} />
-            <Route path="/verification" element={<DataVerification />} />
-            <Route path="/kpi" element={<KpiDashboard />} />
-            <Route path="/users" element={<UserManagement />} />
-            <Route path="/settings" element={<AppSettings />} />
+          <Route element={<RequireAuth />}>
+            <Route element={<AppLayout />}>
+              <Route index path="/" element={<LocationAnalytics />} />
+              <Route path="/verification" element={<DataVerification />} />
+              <Route path="/kpi" element={<KpiDashboard />} />
+              <Route path="/users" element={<UserManagement />} />
+              <Route path="/settings" element={<AppSettings />} />
+            </Route>
           </Route>
 
           <Route element={<GuestOnly />}>

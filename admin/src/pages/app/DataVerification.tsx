@@ -58,6 +58,8 @@ export default function DataVerification() {
     (r) => r.event_type === "scene_analysis" && !r.unsuitable_for_planting,
   ).length;
 
+  const monitorCount = rows.filter((r) => r.event_type === "monitor_seedling").length;
+
   const mapsUrl =
     selected != null
       ? `https://www.google.com/maps?q=${selected.latitude},${selected.longitude}`
@@ -86,7 +88,13 @@ export default function DataVerification() {
               </AdminBadge>
               {!loading && rows.length > 0 ? (
                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                  {pendingScene} scene analyses · synced from mobile capture & monitor actions
+                  {monitorCount} confirmed submission{monitorCount === 1 ? "" : "s"}
+                  {pendingScene > 0 ? (
+                    <>
+                      {" "}
+                      · {pendingScene} legacy auto scene row{pendingScene === 1 ? "" : "s"} (pre-confirm pipeline)
+                    </>
+                  ) : null}
                 </span>
               ) : null}
             </div>
@@ -174,9 +182,11 @@ export default function DataVerification() {
                         <p className="mt-2 font-mono text-sm text-lime-200/90">
                           {selected.latitude.toFixed(5)}°, {selected.longitude.toFixed(5)}°
                         </p>
-                        <p className="mt-2 text-xs text-gray-500">
-                          Image previews will appear here when mobile uploads are wired to storage.
-                        </p>
+                        {!selected.image_url ? (
+                          <p className="mt-2 text-xs text-gray-500">
+                            No capture image on this row (older submission or upload failed).
+                          </p>
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -241,6 +251,17 @@ export default function DataVerification() {
                   {selected.rationale ? (
                     <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">
                       {selected.rationale}
+                    </p>
+                  ) : null}
+
+                  {selected.event_type === "monitor_seedling" &&
+                  selected.raw_analysis &&
+                  typeof selected.raw_analysis === "object" &&
+                  (selected.raw_analysis as { userConfirmed?: unknown }).userConfirmed ===
+                    true ? (
+                    <p className="text-xs font-medium text-emerald-800 dark:text-lime-200">
+                      Field officer confirmed this seedling on device; full analysis snapshot
+                      is stored in <span className="font-mono">raw_analysis</span> for audit.
                     </p>
                   ) : null}
 
@@ -309,7 +330,7 @@ export default function DataVerification() {
               <p className="text-sm text-gray-600 dark:text-gray-400">Loading…</p>
             ) : rows.length === 0 ? (
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                No rows yet. Capture & analyze or tap “Monitor this seedling” on mobile.
+                No rows yet. Confirm a seedling from mobile capture to populate this view.
               </p>
             ) : (
               <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">

@@ -43,6 +43,26 @@ class TestConcreteAndRanking(unittest.TestCase):
         self.assertIn("concreteLikelihood", sig)
         self.assertGreater(sig["concreteLikelihood"], 0.2)
 
+    def test_mottled_canopy_not_flagged_as_hardscape(self) -> None:
+        """Shade + bark + foliage: strict green ratio can be near zero; scene must stay plantable."""
+        w, h = 320, 240
+        img = Image.new("RGB", (w, h))
+        px = img.load()
+        palette = (
+            (38, 52, 34),  # dark green foliage
+            (62, 58, 48),  # trunk / brown
+            (44, 48, 42),  # shadow mix
+        )
+        for y in range(h):
+            for x in range(w):
+                px[x, y] = palette[(x // 12 + y // 10) % 3]
+        raw = _jpeg_bytes(img)
+        out = recommend_from_bytes(raw, None, None, area_m2=400.0, soil=None)
+        self.assertFalse(out.get("unsuitableForPlanting"))
+        self.assertIsNotNone(out.get("recommended"))
+        ranked = out.get("rankedSeedlings") or []
+        self.assertGreaterEqual(len(ranked), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

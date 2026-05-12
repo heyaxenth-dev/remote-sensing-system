@@ -202,6 +202,7 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
 
     total = 0
     greenish = 0
+    exg_hits = 0
     sum_r = sum_g = sum_b = 0.0
     sum_lum = 0.0
     sum_lum2 = 0.0
@@ -223,6 +224,10 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
             sum_chroma += (mx - mn) / 255.0
             if g > r + 12 and g > b + 12:
                 greenish += 1
+            # Excess green (ExG): shaded foliage / canopy where strict g>r,b fails.
+            exg = 2 * g - r - b
+            if exg > 20:
+                exg_hits += 1
 
     if total == 0:
         return {
@@ -234,9 +239,12 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
             "concreteLikelihood": 0.5,
             "surfaceChroma": 0.5,
             "luminanceStd": 0.2,
+            "organicTextureIndex": 0.0,
+            "exgRatio": 0.0,
         }
 
     green_ratio = greenish / total
+    exg_ratio = exg_hits / total
     mean_r = sum_r / total
     mean_g = sum_g / total
     mean_b = sum_b / total
@@ -253,22 +261,28 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
     # Uniform / low-chroma scenes (concrete, asphalt, painted flat surfaces).
     uniformity = _clamp01(1.0 - min(1.0, lum_std * 4.0))
     gray_band = _clamp01(1.0 - abs(mean_lum - 0.48) / 0.38)
-    concrete_likelihood = _clamp01(
+    organic_texture = _clamp01(mean_chroma * 0.52 + min(1.0, lum_std * 3.4) * 0.48)
+    base_concrete = _clamp01(
         (1.0 - green_ratio) * 0.38
         + (1.0 - mean_chroma) * 0.32
         + uniformity * 0.22
         + gray_band * 0.18
     )
+    concrete_likelihood = _clamp01(base_concrete * (1.0 - 0.74 * organic_texture))
+
+    vegetation_index = _clamp01(max(green_ratio, exg_ratio * 0.92))
 
     return {
-        "vegetationIndex": _clamp01(green_ratio),
+        "vegetationIndex": vegetation_index,
         "openSunIndex": open_sun,
         "moistureHint": moisture,
         "greenRatio": _clamp01(green_ratio),
+        "exgRatio": _clamp01(exg_ratio),
         "meanLuminance": _clamp01(mean_lum),
         "concreteLikelihood": concrete_likelihood,
         "surfaceChroma": _clamp01(mean_chroma),
         "luminanceStd": float(min(1.0, lum_std * 2.5)),
+        "organicTextureIndex": organic_texture,
     }
 
 
@@ -305,13 +319,14 @@ def _to_public(seedling: dict[str, Any]) -> dict[str, str]:
 def _unsuitable_for_planting(signals: dict[str, float]) -> tuple[bool, str]:
     veg = float(signals.get("vegetationIndex", 0.0))
     conc = float(signals.get("concreteLikelihood", 0.0))
-    if conc >= 0.68 and veg < 0.12:
+    org = float(signals.get("organicTextureIndex", 0.0))
+    if conc >= 0.68 and veg < 0.12 and org < 0.26:
         return (
             True,
             "This capture looks like hardscape (concrete/asphalt): very low vegetation "
             "and flat, low-color cues. Seedlings need soil—not paved surfaces.",
         )
-    if conc >= 0.78:
+    if conc >= 0.78 and org < 0.24 and veg < 0.16:
         return (
             True,
             "Surface cues strongly resemble concrete or other impervious cover. "

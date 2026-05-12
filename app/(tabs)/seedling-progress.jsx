@@ -122,8 +122,8 @@ export default function SeedlingProgressScreen() {
           {!rows.length ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
-                No seedlings tracked yet. Run a capture analysis and tap “Monitor
-                this seedling”.
+                No seedlings tracked yet. Capture a plantable scene, pick a
+                recommended seedling, then confirm to add it here.
               </Text>
             </View>
           ) : null}

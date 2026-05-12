@@ -180,3 +180,22 @@ on public.monitoring_submissions
 for select
 to anon, authenticated
 using (true);
+
+-- ---------------------------------------------------------------------------
+-- Storage: confirmed capture JPEGs (mobile uploads; public URLs for admin UI)
+-- Run once after enabling Storage. Bucket must exist before app upload.
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('field-captures', 'field-captures', true)
+on conflict (id) do update set public = excluded.public;
+
+drop policy if exists "field_captures_public_read" on storage.objects;
+create policy "field_captures_public_read"
+on storage.objects for select
+using (bucket_id = 'field-captures');
+
+drop policy if exists "field_captures_insert_anon_auth" on storage.objects;
+create policy "field_captures_insert_anon_auth"
+on storage.objects for insert
+to anon, authenticated
+with check (bucket_id = 'field-captures');

@@ -10,7 +10,6 @@ import {
   UserCircleIcon,
 } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
-import SidebarWidget from "./SidebarWidget";
 
 type NavItem = {
   name: string;
@@ -128,15 +127,23 @@ function AppSidebar() {
           !isExpanded && !isHovered ? "lg:justify-center" : "justify-start"
         }`}
       >
-        <Link to="/" className="flex items-center">
+        <Link
+          to="/"
+          className={`flex min-w-0 items-center gap-3 ${showExpandedLogo ? "" : "justify-center"}`}
+        >
           {showExpandedLogo ? (
-            <img
-              className="h-10 w-auto max-w-[180px] object-contain object-left"
-              src="/images/logo/app-logo.png"
-              alt="Remote sensing system"
-              width={180}
-              height={40}
-            />
+            <>
+              <img
+                className="h-10 w-10 shrink-0 object-contain"
+                src="/images/logo/app-logo.png"
+                alt="Remote sensing system"
+                width={40}
+                height={40}
+              />
+              <span className="truncate text-left text-base font-semibold text-gray-900 dark:text-white">
+                Remote-Sensing
+              </span>
+            </>
           ) : (
             <img
               className="size-9 object-contain"
@@ -169,7 +176,6 @@ function AppSidebar() {
             />
           </div>
         </nav>
-        {isExpanded || isHovered || isMobileOpen ? <SidebarWidget /> : null}
       </div>
     </aside>
   );

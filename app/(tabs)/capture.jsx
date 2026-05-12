@@ -15,10 +15,7 @@ import {
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { analyzeSeedlingCapture } from "../../lib/analyzeCapture";
-import {
-  insertMonitorSeedlingSubmission,
-  insertSceneAnalysisSubmission,
-} from "../../lib/monitoringSubmissions";
+import { insertMonitorSeedlingSubmission } from "../../lib/monitoringSubmissions";
 import { SURVEY_LATITUDE, SURVEY_LONGITUDE } from "../../lib/surveyLocation";
 import { supabase } from "../../lib/supabase";
 import { theme } from "../../lib/theme";
@@ -32,25 +29,55 @@ export default function CaptureScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraGranted = permission?.granted === true;
   const cameraRef = React.useRef(null);
+  const lastCaptureBase64Ref = React.useRef(null);
   const [analyzing, setAnalyzing] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
   const [recommendation, setRecommendation] = React.useState(null);
   const [selectedSeedlingId, setSelectedSeedlingId] = React.useState(null);
 
+  const displayRanked = React.useMemo(() => {
+    if (!recommendation || recommendation.unsuitableForPlanting) return [];
+    if (recommendation.rankedSeedlings?.length) {
+      return recommendation.rankedSeedlings;
+    }
+    if (recommendation.recommended) {
+      return [
+        {
+          seedling: recommendation.recommended,
+          matchPercent: Math.round((recommendation.confidence ?? 0) * 100),
+        },
+      ];
+    }
+    return [];
+  }, [recommendation]);
+
+  const seedlingsNeededForArea = React.useMemo(() => {
+    if (!recommendation || recommendation.unsuitableForPlanting) return null;
+    const n = recommendation.estimatedSeedlingsNeeded;
+    if (typeof n === "number" && !Number.isNaN(n)) {
+      return Math.max(1, Math.round(n));
+    }
+    return null;
+  }, [recommendation]);
+
   const selectedRankRow = React.useMemo(() => {
-    if (!recommendation?.rankedSeedlings?.length) return null;
-    const found = recommendation.rankedSeedlings.find(
-      (r) => r.seedling.id === selectedSeedlingId,
-    );
-    return found ?? recommendation.rankedSeedlings[0];
-  }, [recommendation, selectedSeedlingId]);
+    if (!displayRanked.length) return null;
+    const found = displayRanked.find((r) => r.seedling.id === selectedSeedlingId);
+    return found ?? displayRanked[0];
+  }, [displayRanked, selectedSeedlingId]);
 
   React.useEffect(() => {
-    if (recommendation?.recommended?.id) {
-      setSelectedSeedlingId(recommendation.recommended.id);
+    const firstId = displayRanked[0]?.seedling?.id;
+    if (firstId) {
+      setSelectedSeedlingId((prev) =>
+        prev && displayRanked.some((r) => r.seedling.id === prev)
+          ? prev
+          : firstId,
+      );
     } else {
       setSelectedSeedlingId(null);
     }
-  }, [recommendation]);
+  }, [displayRanked]);
 
   const handleCapturePress = React.useCallback(async () => {
     if (Platform.OS === "web") {
@@ -79,6 +106,7 @@ export default function CaptureScreen() {
 
     setAnalyzing(true);
     setRecommendation(null);
+    lastCaptureBase64Ref.current = null;
     try {
       const photo = await cam.takePictureAsync({
         quality: 0.55,
@@ -87,21 +115,13 @@ export default function CaptureScreen() {
       if (!photo?.base64) {
         throw new Error("Camera returned no image data.");
       }
+      lastCaptureBase64Ref.current = photo.base64;
       const result = await analyzeSeedlingCapture({
         base64: photo.base64,
         latitude: SURVEY_LATITUDE,
         longitude: SURVEY_LONGITUDE,
       });
       setRecommendation(result);
-      try {
-        await insertSceneAnalysisSubmission({
-          latitude: SURVEY_LATITUDE,
-          longitude: SURVEY_LONGITUDE,
-          recommendation: result,
-        });
-      } catch (persistErr) {
-        console.warn("[capture] scene_analysis DB:", persistErr);
-      }
     } catch (e) {
       const message = e?.message || "Something went wrong.";
       Alert.alert("Capture & analyze", message);
@@ -111,37 +131,80 @@ export default function CaptureScreen() {
   }, [aiOn, cameraGranted]);
 
   const monitorSeedling = React.useCallback(
-    async (seedling, recommendationSnapshot) => {
+    async (seedling, recommendationSnapshot, selectedMatchPercent) => {
       if (!seedling?.id) return;
+      const est = (() => {
+        const n = recommendationSnapshot?.estimatedSeedlingsNeeded;
+        if (typeof n === "number" && !Number.isNaN(n)) {
+          return Math.max(1, Math.round(n));
+        }
+        return 1;
+      })();
+      const imageBase64 = lastCaptureBase64Ref.current;
+      setSaving(true);
       try {
         await insertMonitorSeedlingSubmission({
           latitude: SURVEY_LATITUDE,
           longitude: SURVEY_LONGITUDE,
           seedling,
           recommendation: recommendationSnapshot,
+          selectedMatchPercent,
+          imageBase64: imageBase64 ?? null,
         });
 
         const {
           data: { session },
         } = await supabase.auth.getSession();
         if (session?.user?.id) {
+          const notesLine = `Estimated seedlings for captured area: ${est}.`;
           const { error } = await supabase.from("seedling_progress").insert({
             user_id: session.user.id,
             seedling_id: seedling.id,
             common_name: seedling.commonName ?? null,
             scientific_name: seedling.scientificName ?? null,
             status: "planned",
-            notes: "",
+            notes: notesLine,
           });
           if (error) console.warn("[capture] seedling_progress:", error.message);
         }
 
+        lastCaptureBase64Ref.current = null;
         router.push("/seedling-progress");
       } catch (e) {
         Alert.alert("Could not save", e?.message ?? "Try again.");
+      } finally {
+        setSaving(false);
       }
     },
     [router],
+  );
+
+  const promptConfirmSeedling = React.useCallback(
+    (seedling, snapshot, matchPercent) => {
+      if (!seedling?.id || !snapshot) return;
+      const n = (() => {
+        const v = snapshot.estimatedSeedlingsNeeded;
+        if (typeof v === "number" && !Number.isNaN(v)) {
+          return Math.max(1, Math.round(v));
+        }
+        return 1;
+      })();
+      Alert.alert(
+        "Confirm seedling",
+        `Add ${seedling.commonName ?? seedling.id} to your seedling progress?\n\n` +
+          `Seedlings needed for this area (estimate): ${n}.\n` +
+          `One admin record will be created with your capture image and confirmed species.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Confirm & add",
+            style: "default",
+            onPress: () => monitorSeedling(seedling, snapshot, matchPercent),
+          },
+        ],
+      );
+    },
+    [monitorSeedling],
   );
 
   return (
@@ -239,14 +302,14 @@ export default function CaptureScreen() {
         <TouchableOpacity
           style={[
             styles.captureBtn,
-            (!cameraGranted || analyzing || !aiOn) && styles.captureBtnDisabled,
+            (!cameraGranted || analyzing || saving || !aiOn) && styles.captureBtnDisabled,
           ]}
           activeOpacity={0.9}
           onPress={handleCapturePress}
-          disabled={!cameraGranted || analyzing || !aiOn}
+          disabled={!cameraGranted || analyzing || saving || !aiOn}
         >
           <View style={styles.captureInner}>
-            {analyzing ? (
+            {analyzing || saving ? (
               <ActivityIndicator color={theme.text} />
             ) : (
               <View style={styles.captureRing}>
@@ -254,7 +317,11 @@ export default function CaptureScreen() {
               </View>
             )}
             <Text style={styles.captureText}>
-              {analyzing ? "Analyzing scene…" : "Capture & tag"}
+              {saving
+                ? "Uploading & saving…"
+                : analyzing
+                  ? "Analyzing scene…"
+                  : "Capture & tag"}
             </Text>
           </View>
         </TouchableOpacity>
@@ -267,19 +334,34 @@ export default function CaptureScreen() {
                 recommendation.rationale ||
                 "This scene appears dominated by concrete or hardscape. Capture soil or vegetation to get seedling recommendations."}
             </Text>
+            <Text style={styles.warnFootnote}>
+              This capture is not saved as a monitoring entry (concrete / hardscape
+              is excluded by default).
+            </Text>
           </View>
         ) : null}
 
-        {!recommendation?.unsuitableForPlanting &&
-        recommendation?.rankedSeedlings?.length ? (
+        {!recommendation?.unsuitableForPlanting && displayRanked.length ? (
           <>
+            {seedlingsNeededForArea != null ? (
+              <View style={styles.areaNeedCard}>
+                <Text style={styles.areaNeedLabel}>For this captured area</Text>
+                <Text style={styles.areaNeedValue}>{seedlingsNeededForArea}</Text>
+                <Text style={styles.areaNeedHint}>
+                  Estimated seedlings needed (spacing heuristic from scene and
+                  context). Nothing is sent to the server until you confirm below;
+                  then one record is stored with this photo and your species choice.
+                </Text>
+              </View>
+            ) : null}
+
             <View style={styles.rankCard}>
-              <Text style={styles.rankHeading}>Candidates (tap to select)</Text>
+              <Text style={styles.rankHeading}>Recommended seedlings</Text>
               <Text style={styles.candidatesHint}>
-                Source:{" "}
+                Tap a row to select · source{" "}
                 {recommendation.source === "remote" ? "server" : "on-device"}
               </Text>
-              {recommendation.rankedSeedlings.map((row) => {
+              {displayRanked.map((row) => {
                 const selected = row.seedling.id === selectedSeedlingId;
                 return (
                   <TouchableOpacity
@@ -302,7 +384,7 @@ export default function CaptureScreen() {
 
             {selectedRankRow ? (
               <View style={styles.recoCard}>
-                <Text style={styles.recoHeading}>Selected seedling</Text>
+                <Text style={styles.recoHeading}>Your selection</Text>
                 <Text style={styles.recoTitle}>
                   {selectedRankRow.seedling.commonName}
                 </Text>
@@ -315,63 +397,44 @@ export default function CaptureScreen() {
                 <Text style={styles.recoMeta}>
                   Match {selectedRankRow.matchPercent}%
                   {selectedRankRow.seedling.id === recommendation.recommended?.id
-                    ? ` · confidence ${Math.round(
+                    ? ` · model confidence ${Math.round(
                         (recommendation.confidence ?? 0) * 100,
                       )}%`
                     : ""}
+                  {seedlingsNeededForArea != null
+                    ? ` · seedlings for area: ${seedlingsNeededForArea}`
+                    : ""}
                 </Text>
                 <Text style={styles.recoRationale}>{recommendation.rationale}</Text>
+                {recommendation.alternatives?.length ? (
+                  <View style={styles.altRow}>
+                    <Text style={styles.altLabel}>Also consider: </Text>
+                    <Text style={styles.altText}>
+                      {recommendation.alternatives
+                        .map((a) => a.commonName)
+                        .join(" · ")}
+                    </Text>
+                  </View>
+                ) : null}
                 <TouchableOpacity
-                  style={styles.monitorBtn}
+                  style={[styles.monitorBtn, saving && styles.monitorBtnDisabled]}
                   onPress={() =>
-                    monitorSeedling(selectedRankRow.seedling, recommendation)
+                    promptConfirmSeedling(
+                      selectedRankRow.seedling,
+                      recommendation,
+                      selectedRankRow.matchPercent,
+                    )
                   }
                   activeOpacity={0.9}
+                  disabled={saving}
                 >
-                  <Text style={styles.monitorBtnText}>Monitor this seedling</Text>
+                  <Text style={styles.monitorBtnText}>
+                    {saving ? "Uploading…" : "Confirm & add to seedling progress"}
+                  </Text>
                 </TouchableOpacity>
               </View>
             ) : null}
           </>
-        ) : !recommendation?.unsuitableForPlanting &&
-          recommendation?.recommended ? (
-          <View style={styles.recoCard}>
-            <Text style={styles.recoHeading}>Recommended seedling</Text>
-            <Text style={styles.recoTitle}>
-              {recommendation.recommended.commonName}
-            </Text>
-            <Text style={styles.recoSci}>
-              {recommendation.recommended.scientificName}
-            </Text>
-            <Text style={styles.recoNotes}>
-              {recommendation.recommended.notes}
-            </Text>
-            <Text style={styles.recoMeta}>
-              Match score{" "}
-              {Math.round((recommendation.confidence ?? 0) * 100)}% · source{" "}
-              {recommendation.source === "remote" ? "server" : "on-device"}
-            </Text>
-            <Text style={styles.recoRationale}>{recommendation.rationale}</Text>
-            {recommendation.alternatives?.length ? (
-              <View style={styles.altRow}>
-                <Text style={styles.altLabel}>Also consider: </Text>
-                <Text style={styles.altText}>
-                  {recommendation.alternatives
-                    .map((a) => a.commonName)
-                    .join(" · ")}
-                </Text>
-              </View>
-            ) : null}
-            <TouchableOpacity
-              style={styles.monitorBtn}
-              onPress={() =>
-                monitorSeedling(recommendation.recommended, recommendation)
-              }
-              activeOpacity={0.9}
-            >
-              <Text style={styles.monitorBtnText}>Monitor this seedling</Text>
-            </TouchableOpacity>
-          </View>
         ) : null}
 
         <View style={styles.panel}>
@@ -618,12 +681,50 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   warnBody: { color: theme.text, fontSize: 14, lineHeight: 20 },
+  warnFootnote: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 12,
+    fontStyle: "italic",
+  },
+  areaNeedCard: {
+    backgroundColor: theme.accentSurface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.accentDark,
+    padding: 16,
+    marginBottom: 16,
+  },
+  areaNeedLabel: {
+    color: theme.accentDark,
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  areaNeedValue: {
+    color: theme.accentDark,
+    fontSize: 36,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  areaNeedHint: {
+    color: theme.text,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+    opacity: 0.9,
+  },
   monitorBtn: {
     marginTop: 14,
     backgroundColor: theme.accentDark,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: "center",
+  },
+  monitorBtnDisabled: {
+    opacity: 0.55,
   },
   monitorBtnText: { color: theme.text, fontWeight: "800", fontSize: 14 },
   rankCard: {

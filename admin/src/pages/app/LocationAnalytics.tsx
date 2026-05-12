@@ -25,9 +25,11 @@ function aggregate(rows: MonitoringRow[]) {
   const sceneRows = rows.filter((r) => r.event_type === "scene_analysis");
   const monitorRows = rows.filter((r) => r.event_type === "monitor_seedling");
 
+  const primaryForStocking = sceneRows.length ? sceneRows : monitorRows;
   const avgStocking =
-    sceneRows.length > 0
-      ? sceneRows.reduce((s, r) => s + Number(r.estimated_seedlings_needed), 0) / sceneRows.length
+    primaryForStocking.length > 0
+      ? primaryForStocking.reduce((s, r) => s + Number(r.estimated_seedlings_needed), 0) /
+        primaryForStocking.length
       : 0;
 
   return {
