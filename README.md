@@ -1,5 +1,27 @@
 # Remote sensing system
 
+**Remote Sensing-Based Reforestation Monitoring and Management System** for DENR-CENRO Culasi — mobile field data collection, a centralized geospatial repository, and location analytics for reforestation plots.
+
+### Study objectives (system alignment)
+
+| Objective | Implementation |
+|-----------|----------------|
+| Mobile data acquisition (GPS, imagery, plots) | `app/(tabs)/capture.jsx` — live GPS via `expo-location`, plot picker, grid cells, camera + Supabase sync |
+| Centralized geospatial repository | `reforestation_plots` + `monitoring_submissions` in Supabase; admin **Location analytics** (GeoJSON export, interactive map) and **Data verification** |
+| Location analytics dashboard | Admin **KPI automation** — survival rates, health trends, plot comparison, interactive map from field data |
+
+**Roles:** set `profiles.role` to `forest_ranger`, `planning_officer`, or `admin` (mobile home shows role label). After pulling schema changes, run migrations in `supabase/migrations/` in the SQL Editor.
+
+**PENRO NGP reference (data accuracy):** Field captures are scored against `data/ngp-penro-reference.json` (imported from the PENRO compliance workbook). Import sites into Supabase:
+
+```bash
+npm run import:ngp-sites   # requires SUPABASE_SERVICE_ROLE_KEY in .env
+```
+
+Accuracy checks: NGP site code, GPS vs reference, GPS precision, species vs contract, stocking vs contracted density. Survival KPIs compare field progress to each site’s **latest survival rate** from the PENRO database.
+
+---
+
 Monorepo for remote sensing / monitoring:
 
 | Module | Path | Stack |
@@ -76,7 +98,7 @@ Each package tree is independent (`package-lock.json` at root and under `admin/`
 
 ### 3. Supabase schema and optional demo user
 
-1. In the Supabase dashboard, open **SQL Editor** and run `supabase/schema.sql` (reference data such as `soil_types`, monitoring tables such as `seedling_progress`, etc.).
+1. In the Supabase dashboard, open **SQL Editor** and run `supabase/schema.sql` (monitoring tables such as `reforestation_plots`, `monitoring_submissions`, `seedling_progress`, etc.).
 
 2. To create the demo client user, set `SUPABASE_SERVICE_ROLE_KEY` in the root `.env`, then from the **repository root**:
 

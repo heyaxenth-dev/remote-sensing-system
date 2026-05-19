@@ -1,0 +1,160 @@
+{
+  "source": "DENR PENRO NGP compliance database (CENRO Culasi) — species preferences for aerial ranking",
+  "categories": {
+    "native_timber": {
+      "preferences": {
+        "vegetationIndex": { "ideal": 0.32, "weight": 1.1 },
+        "openSunIndex": { "ideal": 0.48, "weight": 1.0 },
+        "moistureHint": { "ideal": 0.5, "weight": 0.85 }
+      },
+      "notesSuffix": "Native timber species on NGP contracts; suits partial canopy or edge gaps."
+    },
+    "fruit": {
+      "preferences": {
+        "vegetationIndex": { "ideal": 0.2, "weight": 1.15 },
+        "openSunIndex": { "ideal": 0.72, "weight": 1.25 },
+        "moistureHint": { "ideal": 0.48, "weight": 0.75 }
+      },
+      "notesSuffix": "Fruit-bearing species common on NGP sites; prefers open, sunny microsites."
+    },
+    "pioneer_exotic": {
+      "preferences": {
+        "vegetationIndex": { "ideal": 0.18, "weight": 1.2 },
+        "openSunIndex": { "ideal": 0.75, "weight": 1.3 },
+        "moistureHint": { "ideal": 0.42, "weight": 0.7 }
+      },
+      "notesSuffix": "Fast-growing pioneer on PENRO records; open-ground establishment."
+    },
+    "bamboo": {
+      "preferences": {
+        "vegetationIndex": { "ideal": 0.4, "weight": 1.0 },
+        "openSunIndex": { "ideal": 0.45, "weight": 0.95 },
+        "moistureHint": { "ideal": 0.7, "weight": 1.35 }
+      },
+      "notesSuffix": "Bamboo/clumping grass on NGP contracts; moist banks and humid pockets."
+    },
+    "understory": {
+      "preferences": {
+        "vegetationIndex": { "ideal": 0.42, "weight": 1.05 },
+        "openSunIndex": { "ideal": 0.38, "weight": 1.1 },
+        "moistureHint": { "ideal": 0.58, "weight": 0.9 }
+      },
+      "notesSuffix": "Shade-tolerant crop species on DENR NGP lists."
+    },
+    "general": {
+      "preferences": {
+        "vegetationIndex": { "ideal": 0.28, "weight": 1.0 },
+        "openSunIndex": { "ideal": 0.55, "weight": 1.0 },
+        "moistureHint": { "ideal": 0.5, "weight": 0.8 }
+      },
+      "notesSuffix": "Listed on the site NGP species contract (PENRO reference)."
+    }
+  },
+  "profiles": {
+    "narra": {
+      "scientificName": "Pterocarpus indicus",
+      "category": "native_timber"
+    },
+    "badlan": {
+      "scientificName": "Vitex parviflora",
+      "category": "native_timber",
+      "notes": "Molave/badlan — drought-tolerant native on Antique NGP sites."
+    },
+    "balod": {
+      "scientificName": "Vitex parviflora",
+      "category": "native_timber"
+    },
+    "toog": {
+      "scientificName": "Dipterocarpus spp.",
+      "category": "native_timber"
+    },
+    "jackfruit": {
+      "scientificName": "Artocarpus heterophyllus",
+      "category": "fruit"
+    },
+    "rambutan": {
+      "scientificName": "Nephelium lappaceum",
+      "category": "fruit"
+    },
+    "mango": {
+      "scientificName": "Mangifera indica",
+      "category": "fruit"
+    },
+    "guyabano": {
+      "scientificName": "Annona muricata",
+      "category": "fruit"
+    },
+    "duhat": {
+      "scientificName": "Syzygium cumini",
+      "category": "fruit"
+    },
+    "santol": {
+      "scientificName": "Sandoricum koetjape",
+      "category": "fruit"
+    },
+    "cashew": {
+      "scientificName": "Anacardium occidentale",
+      "category": "fruit"
+    },
+    "lansones": {
+      "scientificName": "Lansium parasiticum",
+      "category": "fruit"
+    },
+    "avocado": {
+      "scientificName": "Persea americana",
+      "category": "fruit"
+    },
+    "mahogany": {
+      "scientificName": "Swietenia macrophylla",
+      "category": "pioneer_exotic"
+    },
+    "gmelina": {
+      "scientificName": "Gmelina arborea",
+      "category": "pioneer_exotic"
+    },
+    "ipilipil": {
+      "scientificName": "Leucaena leucocephala",
+      "category": "pioneer_exotic"
+    },
+    "kakawate": {
+      "scientificName": "Gliricidia sepium",
+      "category": "pioneer_exotic"
+    },
+    "aklengparang": {
+      "scientificName": "Trema orientalis",
+      "category": "pioneer_exotic"
+    },
+    "coffee": {
+      "scientificName": "Coffea spp.",
+      "category": "understory"
+    },
+    "cacao": {
+      "scientificName": "Theobroma cacao",
+      "category": "understory"
+    },
+    "kawayantinik": {
+      "scientificName": "Bambusa blumeana",
+      "category": "bamboo"
+    },
+    "bamboo": {
+      "scientificName": "Bambusa spp.",
+      "category": "bamboo"
+    },
+    "agoho": {
+      "scientificName": "Casuarina equisetifolia",
+      "category": "pioneer_exotic"
+    },
+    "mountainagoho": {
+      "scientificName": "Casuarina rumphiana",
+      "category": "pioneer_exotic"
+    },
+    "antipolo": {
+      "scientificName": "Artocarpus blancoi",
+      "category": "native_timber"
+    },
+    "alibangbang": {
+      "scientificName": "Terminalia catappa",
+      "category": "native_timber"
+    }
+  }
+}

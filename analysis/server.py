@@ -26,7 +26,7 @@ class AnalyzeBody(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     area_m2: float | None = None
-    soil: dict | None = None
+    penro_plot: dict | None = None
 
 
 @app.post("/analyze")
@@ -37,7 +37,7 @@ def analyze(body: AnalyzeBody) -> dict:
         body.latitude,
         body.longitude,
         area_m2=body.area_m2,
-        soil=body.soil,
+        penro_plot=body.penro_plot,
     )
 
 

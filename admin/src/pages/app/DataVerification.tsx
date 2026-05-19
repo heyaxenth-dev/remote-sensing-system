@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import PageMeta from "../../components/common/PageMeta";
 import { AdminBadge, AdminCard, OutlineButton, PrimaryButton } from "../../components/app/adminUi";
 import {
   loadMonitoringSubmissions,
+  loadReforestationPlots,
+  updateSubmissionVerification,
   type MonitoringRow,
+  type ReforestationPlot,
 } from "../../lib/fieldMonitoring";
 import { isSupabaseConfigured } from "../../lib/supabase";
 
@@ -18,11 +21,24 @@ function queueTone(row: MonitoringRow): "success" | "warn" | "danger" {
   return "warn";
 }
 
+const FLAG_REASONS = [
+  "Not a field capture (screen / indoor / device photo)",
+  "Unplantable surface (concrete / wood / built area)",
+  "Poor visibility / blur",
+  "Inaccurate GPS location",
+  "Incorrect species / count",
+  "Site damage / mortality observed",
+];
+
 export default function DataVerification() {
   const [rows, setRows] = useState<MonitoringRow[]>([]);
+  const [plots, setPlots] = useState<ReforestationPlot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [flagReasons, setFlagReasons] = useState<string[]>([FLAG_REASONS[0]]);
+  const [verificationNotes, setVerificationNotes] = useState("");
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -34,8 +50,12 @@ export default function DataVerification() {
     setLoading(true);
     setError(null);
     try {
-      const list = await loadMonitoringSubmissions(200);
+      const [list, plotList] = await Promise.all([
+        loadMonitoringSubmissions(200),
+        loadReforestationPlots(),
+      ]);
       setRows(list);
+      setPlots(plotList);
       setSelectedId((prev) => {
         if (prev && list.some((r) => r.id === prev)) return prev;
         return list[0]?.id ?? null;
@@ -53,6 +73,44 @@ export default function DataVerification() {
   }, [load]);
 
   const selected = rows.find((r) => r.id === selectedId) ?? rows[0] ?? null;
+
+  const plotForSelected = selected?.plot_id
+    ? plots.find((p) => p.id === selected.plot_id)
+    : null;
+
+  React.useEffect(() => {
+    if (!selected) {
+      setVerificationNotes("");
+      setFlagReasons([FLAG_REASONS[0]]);
+      return;
+    }
+    setVerificationNotes(selected.verification_notes ?? "");
+    if (selected.verification_status === "flagged" && selected.verification_notes) {
+      const parts = selected.verification_notes.split("; ").filter(Boolean);
+      setFlagReasons(parts.length ? parts : [FLAG_REASONS[0]]);
+    }
+  }, [selected?.id, selected?.verification_notes, selected?.verification_status]);
+
+  const applyVerification = async (status: "confirmed" | "flagged") => {
+    if (!selected) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const notes =
+        status === "flagged"
+          ? flagReasons.join("; ")
+          : verificationNotes.trim() || null;
+      await updateSubmissionVerification(selected.id, {
+        verification_status: status,
+        verification_notes: notes,
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save verification.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const pendingScene = rows.filter(
     (r) => r.event_type === "scene_analysis" && !r.unsuitable_for_planting,
@@ -80,8 +138,11 @@ export default function DataVerification() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-              Data verification & image processing
+              Geospatial data verification
             </h1>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              Review field GPS, imagery, and plot metrics before reporting to DENR-CENRO Culasi
+            </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <AdminBadge tone="warn">
                 {loading ? "Loading…" : `${rows.length} submission${rows.length === 1 ? "" : "s"}`}
@@ -217,15 +278,84 @@ export default function DataVerification() {
                     <p className="mt-2 text-xs text-gray-600 dark:text-gray-500">
                       ID: {selected.seedling_id ?? "—"} ·{" "}
                       <AdminBadge tone={queueTone(selected)}>{eventLabel(selected.event_type)}</AdminBadge>
+                      {selected.verification_status ? (
+                        <>
+                          {" "}
+                          ·{" "}
+                          <AdminBadge
+                            tone={
+                              selected.verification_status === "confirmed"
+                                ? "success"
+                                : selected.verification_status === "flagged"
+                                  ? "danger"
+                                  : "warn"
+                            }
+                          >
+                            {selected.verification_status}
+                          </AdminBadge>
+                        </>
+                      ) : null}
                     </p>
+                    {plotForSelected ? (
+                      <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                        NGP site: {plotForSelected.site_code ?? plotForSelected.plot_code} —{" "}
+                        {plotForSelected.name}
+                        {selected.grid_cell ? ` · Grid ${selected.grid_cell}` : ""}
+                      </p>
+                    ) : null}
                   </div>
 
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-lime-500/25 dark:bg-emerald-950/40">
+                  {selected.penro_accuracy_score != null ? (
+                    <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/25 dark:bg-sky-950/30">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+                        PENRO data accuracy
+                      </p>
+                      <p className="mt-1 text-3xl font-bold text-sky-800 dark:text-sky-300">
+                        {selected.penro_accuracy_score}%
+                      </p>
+                      {plotForSelected?.latest_survival_rate != null ? (
+                        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                          NGP baseline survival:{" "}
+                          {Math.round(Number(plotForSelected.latest_survival_rate) * 100)}% ·
+                          contracted {plotForSelected.seedlings_contracted ?? plotForSelected.target_seedlings}{" "}
+                          seedlings
+                        </p>
+                      ) : null}
+                      {Array.isArray(
+                        (selected.penro_accuracy_detail as { checks?: unknown })?.checks,
+                      ) ? (
+                        <ul className="mt-3 space-y-1 text-xs text-gray-700 dark:text-gray-300">
+                          {(
+                            selected.penro_accuracy_detail as {
+                              checks: { label: string; score: number; detail: string }[];
+                            }
+                          ).checks.map((c) => (
+                            <li key={c.label}>
+                              {c.label}: {c.score}% — {c.detail}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {selected.unsuitable_for_planting ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-500/25 dark:bg-red-950/40">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-red-900 dark:text-red-200">
+                        Capture rejected for stocking
+                      </p>
+                      <p className="mt-2 text-sm leading-relaxed text-red-900 dark:text-red-100">
+                        {selected.rationale ??
+                          "Likely not NGP ground vegetation (e.g. screen or indoor photo). Flag and retake on site."}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-lime-500/25 dark:bg-emerald-950/40">
                     <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900 dark:text-lime-200">
                       Seedlings needed (assessed)
                     </p>
                     <p className="mt-1 text-3xl font-bold text-emerald-800 dark:text-lime-300">
-                      {selected.estimated_seedlings_needed}
+                      {selected.estimated_seedlings_needed ?? "—"}
                     </p>
                     <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                       Derived from assessed plot area (~4 m² spacing heuristic when area is inferred from context).
@@ -238,8 +368,9 @@ export default function DataVerification() {
                       ) : null}
                     </p>
                   </div>
+                  )}
 
-                  {selected.confidence != null ? (
+                  {selected.confidence != null && !selected.unsuitable_for_planting ? (
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                       Match confidence:{" "}
                       <span className="font-semibold text-emerald-700 dark:text-lime-300">
@@ -272,16 +403,38 @@ export default function DataVerification() {
               </div>
 
               <div className="mt-6 flex flex-wrap gap-2 border-t border-gray-200 pt-6 dark:border-gray-800">
-                <OutlineButton type="button" disabled>
-                  Confirm seedling count (manual review)
+                <OutlineButton
+                  type="button"
+                  disabled={saving || !selected}
+                  onClick={() => void applyVerification("confirmed")}
+                >
+                  Confirm seedling count
                 </OutlineButton>
-                <OutlineButton type="button" disabled>
+                <OutlineButton
+                  type="button"
+                  disabled={saving || !selected}
+                  onClick={() => void applyVerification("flagged")}
+                >
                   Flag for review
                 </OutlineButton>
-                <PrimaryButton type="button" disabled>
-                  Save verification
+                <PrimaryButton
+                  type="button"
+                  disabled={saving || !selected}
+                  onClick={() => void applyVerification("confirmed")}
+                >
+                  {saving ? "Saving…" : "Save verification"}
                 </PrimaryButton>
               </div>
+              <label className="mt-4 block text-sm text-gray-600 dark:text-gray-400">
+                Reviewer notes
+                <textarea
+                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                  rows={2}
+                  value={verificationNotes}
+                  onChange={(e) => setVerificationNotes(e.target.value)}
+                  placeholder="Optional notes for confirmed captures"
+                />
+              </label>
             </>
           )}
         </AdminCard>
@@ -295,16 +448,18 @@ export default function DataVerification() {
               Checklist for reviewers (offline workflow); pair with the submission list.
             </p>
             <ul className="mt-4 space-y-3">
-              {[
-                "Poor visibility / blur",
-                "Inaccurate GPS location",
-                "Incorrect species / count",
-                "Site damage / mortality observed",
-              ].map((label, i) => (
+              {FLAG_REASONS.map((label) => (
                 <li key={label} className="flex items-start gap-3">
                   <input
                     type="checkbox"
-                    defaultChecked={i === 0}
+                    checked={flagReasons.includes(label)}
+                    onChange={(e) => {
+                      setFlagReasons((prev) =>
+                        e.target.checked
+                          ? [...prev, label]
+                          : prev.filter((r) => r !== label),
+                      );
+                    }}
                     className="mt-1 size-4 rounded border-gray-400 bg-white text-lime-600 dark:border-gray-600 dark:bg-gray-800 dark:text-lime-500"
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
@@ -312,10 +467,18 @@ export default function DataVerification() {
               ))}
             </ul>
             <div className="mt-6 flex flex-wrap gap-2">
-              <PrimaryButton type="button" disabled>
+              <PrimaryButton
+                type="button"
+                disabled={saving || !selected}
+                onClick={() => void applyVerification("flagged")}
+              >
                 Flag for review
               </PrimaryButton>
-              <OutlineButton type="button" disabled>
+              <OutlineButton
+                type="button"
+                disabled={saving}
+                onClick={() => setFlagReasons([])}
+              >
                 Clear flags
               </OutlineButton>
             </div>

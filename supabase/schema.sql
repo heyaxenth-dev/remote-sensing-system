@@ -199,3 +199,65 @@ create policy "field_captures_insert_anon_auth"
 on storage.objects for insert
 to anon, authenticated
 with check (bucket_id = 'field-captures');
+
+-- ---------------------------------------------------------------------------
+-- Reforestation alignment (plots, verification, study roles) — see also
+-- supabase/migrations/20260519_reforestation_alignment.sql for incremental deploy.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.reforestation_plots (
+  id uuid primary key default gen_random_uuid(),
+  plot_code text not null unique,
+  name text not null,
+  barangay text,
+  municipality text not null default 'Culasi',
+  latitude double precision not null,
+  longitude double precision not null,
+  target_seedlings integer not null default 0,
+  program_year integer,
+  created_at timestamptz not null default now()
+);
+
+alter table public.reforestation_plots enable row level security;
+
+create policy "Anyone can read reforestation_plots"
+on public.reforestation_plots
+for select
+to anon, authenticated
+using (true);
+
+alter table public.monitoring_submissions
+  add column if not exists user_id uuid references auth.users(id) on delete set null,
+  add column if not exists plot_id uuid references public.reforestation_plots(id) on delete set null,
+  add column if not exists grid_cell text,
+  add column if not exists verification_status text not null default 'pending',
+  add column if not exists verification_notes text,
+  add column if not exists verified_at timestamptz,
+  add column if not exists verified_by uuid references auth.users(id) on delete set null;
+
+alter table public.seedling_progress
+  add column if not exists plot_id uuid references public.reforestation_plots(id) on delete set null;
+
+alter table public.profiles
+  drop constraint if exists profiles_role_check;
+
+alter table public.profiles
+  add constraint profiles_role_check
+  check (
+    role in ('client', 'forest_ranger', 'planning_officer', 'admin')
+  );
+
+insert into public.reforestation_plots (plot_code, name, barangay, municipality, latitude, longitude, target_seedlings, program_year)
+select 'CUL-A1', 'Culasi Reforestation Plot A1', 'Culasi', 'Culasi', 11.2886, 122.0340, 420, 2025
+where not exists (select 1 from public.reforestation_plots where plot_code = 'CUL-A1');
+
+insert into public.reforestation_plots (plot_code, name, barangay, municipality, latitude, longitude, target_seedlings, program_year)
+select 'CUL-B1', 'Culasi Reforestation Plot B1', 'Bacong', 'Culasi', 11.2950, 122.0410, 380, 2025
+where not exists (select 1 from public.reforestation_plots where plot_code = 'CUL-B1');
+
+create policy "Authenticated can update monitoring_submissions verification"
+on public.monitoring_submissions
+for update
+to authenticated
+using (true)
+with check (true);

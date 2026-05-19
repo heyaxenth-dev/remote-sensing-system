@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageMeta from "../../components/common/PageMeta";
 import { AdminBadge, AdminCard, OutlineButton } from "../../components/app/adminUi";
-import { loadMonitoringSubmissions, type MonitoringRow } from "../../lib/fieldMonitoring";
+import FieldPointsMap from "../../components/maps/FieldPointsMap";
+import {
+  loadMonitoringSubmissions,
+  loadReforestationPlots,
+  type MonitoringRow,
+  type ReforestationPlot,
+} from "../../lib/fieldMonitoring";
 import { isSupabaseConfigured } from "../../lib/supabase";
 
 function formatRelativeTime(iso: string): string {
@@ -24,6 +30,15 @@ function aggregate(rows: MonitoringRow[]) {
 
   const sceneRows = rows.filter((r) => r.event_type === "scene_analysis");
   const monitorRows = rows.filter((r) => r.event_type === "monitor_seedling");
+  const verifiedCount = rows.filter((r) => r.verification_status === "confirmed").length;
+  const pendingVerification = rows.filter((r) => r.verification_status === "pending").length;
+  const accuracyScores = rows
+    .map((r) => r.penro_accuracy_score)
+    .filter((n): n is number => typeof n === "number" && !Number.isNaN(n));
+  const avgPenroAccuracy =
+    accuracyScores.length > 0
+      ? Math.round(accuracyScores.reduce((a, b) => a + b, 0) / accuracyScores.length)
+      : null;
 
   const primaryForStocking = sceneRows.length ? sceneRows : monitorRows;
   const avgStocking =
@@ -39,31 +54,10 @@ function aggregate(rows: MonitoringRow[]) {
     avgStockingRounded: sceneRows.length ? Math.round(avgStocking) : 0,
     sceneCount: sceneRows.length,
     flaggedScenes: sceneRows.filter((r) => r.unsuitable_for_planting).length,
+    verifiedCount,
+    pendingVerification,
+    avgPenroAccuracy,
   };
-}
-
-function computeOsmBbox(rows: MonitoringRow[]): string | null {
-  if (rows.length === 0) return null;
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLon = Infinity;
-  let maxLon = -Infinity;
-  for (const r of rows) {
-    const la = Number(r.latitude);
-    const lo = Number(r.longitude);
-    if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
-    minLat = Math.min(minLat, la);
-    maxLat = Math.max(maxLat, la);
-    minLon = Math.min(minLon, lo);
-    maxLon = Math.max(maxLon, lo);
-  }
-  if (!Number.isFinite(minLat)) return null;
-
-  const pad = 0.003;
-  if (minLat === maxLat && minLon === maxLon) {
-    return `${minLon - pad},${minLat - pad},${maxLon + pad},${maxLat + pad}`;
-  }
-  return `${minLon - pad},${minLat - pad},${maxLon + pad},${maxLat + pad}`;
 }
 
 function downloadGeoJSON(rows: MonitoringRow[]) {
@@ -119,12 +113,14 @@ function recentBadgeLabel(row: MonitoringRow): string {
 
 export default function LocationAnalytics() {
   const [rows, setRows] = useState<MonitoringRow[]>([]);
+  const [plots, setPlots] = useState<ReforestationPlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
       setRows([]);
+      setPlots([]);
       setError(null);
       setLoading(false);
       return;
@@ -132,8 +128,12 @@ export default function LocationAnalytics() {
     setLoading(true);
     setError(null);
     try {
-      const data = await loadMonitoringSubmissions(500);
+      const [data, plotList] = await Promise.all([
+        loadMonitoringSubmissions(500),
+        loadReforestationPlots(),
+      ]);
       setRows(data);
+      setPlots(plotList);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load field data.");
       setRows([]);
@@ -147,13 +147,7 @@ export default function LocationAnalytics() {
   }, [load]);
 
   const metrics = useMemo(() => aggregate(rows), [rows]);
-  const osmBbox = useMemo(() => computeOsmBbox(rows), [rows]);
   const recent = useMemo(() => rows.slice(0, 10), [rows]);
-
-  const osmEmbedUrl =
-    osmBbox != null
-      ? `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(osmBbox)}&layer=mapnik`
-      : null;
 
   return (
     <>
@@ -168,7 +162,7 @@ export default function LocationAnalytics() {
               Location analytics
             </h1>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              Regional overview — populated from mobile capture & monitor events in Supabase
+              Centralized geospatial repository — field GPS, imagery, and plot metrics for DENR-CENRO Culasi
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -201,7 +195,7 @@ export default function LocationAnalytics() {
           </AdminCard>
         ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {[
             {
               label: "Distinct locations",
@@ -222,13 +216,19 @@ export default function LocationAnalytics() {
               hint: "All events in the rolling week",
             },
             {
-              label: "Avg. stocking estimate",
-              value:
-                loading ? "—" : metrics.sceneCount ? String(metrics.avgStockingRounded) : "—",
-              hint:
-                metrics.sceneCount > 0
-                  ? `Mean across ${metrics.sceneCount} scene analyses`
-                  : "No scene analyses yet",
+              label: "PENRO data accuracy",
+              value: loading ? "—" : metrics.avgPenroAccuracy != null ? `${metrics.avgPenroAccuracy}%` : "—",
+              hint: "Mean score vs NGP compliance database",
+            },
+            {
+              label: "Verified captures",
+              value: loading ? "—" : String(metrics.verifiedCount),
+              hint: `${metrics.pendingVerification} pending verification`,
+            },
+            {
+              label: "Registered plots",
+              value: loading ? "—" : String(plots.length),
+              hint: "Reforestation plot registry (Culasi program)",
             },
           ].map((k) => (
             <AdminCard key={k.label} className="!p-4">
@@ -262,13 +262,9 @@ export default function LocationAnalytics() {
                   </p>
                 </div>
               </div>
-            ) : osmEmbedUrl ? (
-              <iframe
-                title="OpenStreetMap overview of submission bounding box"
-                className="aspect-[21/9] min-h-[220px] w-full rounded-xl ring-1 ring-lime-500/20"
-                src={osmEmbedUrl}
-              />
-            ) : null}
+            ) : (
+              <FieldPointsMap submissions={rows} plots={plots} />
+            )}
             <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400">
               <span className="flex items-center gap-1.5">
                 <span className="size-2 rounded-full bg-lime-400" /> Monitor ({metrics.monitorEvents})

@@ -5,30 +5,28 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import urllib.parse
 import urllib.request
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 
 from PIL import Image
+
+from capture_validity import assess_capture_validity
+from penro_species import (
+    build_seedlings_from_penro_plot,
+    estimate_seedlings_from_penro_plot,
+)
 
 OPEN_METEO_FORECAST_URL = os.environ.get(
     "OPEN_METEO_FORECAST_URL", "https://api.open-meteo.com/v1/forecast"
 )
 
-CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "seedling-catalog.json"
-
-
 def _clamp01(x: float) -> float:
     if math.isnan(x):
         return 0.0
     return max(0.0, min(1.0, x))
-
-
-def _load_catalog() -> dict[str, Any]:
-    with CATALOG_PATH.open(encoding="utf-8") as f:
-        return json.load(f)
 
 
 def _safe_float(x: Any) -> float | None:
@@ -100,94 +98,44 @@ def _fetch_weather_signals(latitude: float, longitude: float) -> dict[str, float
         return {}
 
 
-def _compute_area_soil_signals(
-    *,
-    area_m2: float | None,
-    soil: dict[str, Any] | None,
-) -> dict[str, float]:
-    soil = soil or {}
-    ph = _safe_float(soil.get("ph"))
-    drainage = soil.get("drainage")  # "poor" | "medium" | "good"
-    texture = soil.get("texture")  # "sandy" | "loam" | "clay"
-
+def _compute_area_signals(*, area_m2: float | None) -> dict[str, float]:
+    """Site area context for plantable-area monitoring (no soil database)."""
     out: dict[str, float] = {}
-
     if area_m2 is not None:
-        # Small plots bias toward smaller footprint / faster feedback loops.
-        # 0..1 = small..large. 0 at 50m², 1 at 2ha.
         out["areaIndex"] = _norm01(area_m2, 50.0, 20_000.0)
         out["areaM2"] = float(area_m2)
-
-    if ph is not None:
-        # Most seedlings like mildly acidic to neutral; center at ~6.5
-        # Store as both raw pH and a "goodness" index (1 near 6.5, 0 at extremes).
-        out["soilPh"] = float(ph)
-        out["soilPhFit"] = _clamp01(1.0 - abs(ph - 6.5) / 2.5)
-
-    drainage_map = {"poor": 0.15, "medium": 0.55, "good": 0.85}
-    if isinstance(drainage, str):
-        v = drainage_map.get(drainage.strip().lower())
-        if v is not None:
-            out["drainageIndex"] = float(v)
-
-    texture_map = {"sandy": 0.25, "loam": 0.6, "clay": 0.8}
-    if isinstance(texture, str):
-        v = texture_map.get(texture.strip().lower())
-        if v is not None:
-            out["textureIndex"] = float(v)
-
     return out
 
 
 def _environment_profile(seedling: dict[str, Any]) -> dict[str, dict[str, float]]:
-    """
-    Heuristic ideals for non-image context (weather/area/soil) per seedling.
-    Values are 0..1 indices that match signals we compute above.
-    """
+    """Heuristic weather/area ideals keyed by DENR species id token."""
     sid = (seedling.get("id") or "").strip().lower()
-
-    # Defaults are neutral / low weight to avoid overfitting.
     base = {
         "humidityIndex": {"ideal": 0.55, "weight": 0.25},
         "rainIndex": {"ideal": 0.45, "weight": 0.25},
         "heatIndex": {"ideal": 0.6, "weight": 0.2},
         "windIndex": {"ideal": 0.45, "weight": 0.1},
-        "areaIndex": {"ideal": 0.55, "weight": 0.15},
-        "drainageIndex": {"ideal": 0.6, "weight": 0.25},
-        "soilPhFit": {"ideal": 0.85, "weight": 0.2},
-        "textureIndex": {"ideal": 0.55, "weight": 0.1},
+        "areaIndex": {"ideal": 0.55, "weight": 0.2},
     }
-
-    if sid == "bamboo":
+    if re.search(r"kawayan|bamboo|buho", sid):
         base |= {
             "humidityIndex": {"ideal": 0.8, "weight": 0.65},
             "rainIndex": {"ideal": 0.75, "weight": 0.7},
-            "drainageIndex": {"ideal": 0.45, "weight": 0.35},  # tolerates wetter soils
             "areaIndex": {"ideal": 0.75, "weight": 0.25},
         }
-    elif sid == "moringa":
+    elif re.search(r"badlan|balod|molave|toog|narra", sid):
         base |= {
-            "humidityIndex": {"ideal": 0.45, "weight": 0.45},
-            "rainIndex": {"ideal": 0.25, "weight": 0.55},
-            "drainageIndex": {"ideal": 0.8, "weight": 0.55},
-            "heatIndex": {"ideal": 0.7, "weight": 0.35},
-            "areaIndex": {"ideal": 0.35, "weight": 0.2},
+            "humidityIndex": {"ideal": 0.45, "weight": 0.5},
+            "rainIndex": {"ideal": 0.3, "weight": 0.55},
+            "heatIndex": {"ideal": 0.65, "weight": 0.3},
         }
-    elif sid == "molave":
+    elif re.search(r"mango|jackfruit|rambutan|guyabano|duhat", sid):
         base |= {
-            "humidityIndex": {"ideal": 0.4, "weight": 0.55},
-            "rainIndex": {"ideal": 0.2, "weight": 0.65},
-            "drainageIndex": {"ideal": 0.85, "weight": 0.6},
-            "heatIndex": {"ideal": 0.7, "weight": 0.35},
+            "humidityIndex": {"ideal": 0.5, "weight": 0.4},
+            "rainIndex": {"ideal": 0.4, "weight": 0.45},
+            "heatIndex": {"ideal": 0.68, "weight": 0.3},
+            "areaIndex": {"ideal": 0.4, "weight": 0.2},
         }
-    elif sid == "narra":
-        base |= {
-            "humidityIndex": {"ideal": 0.6, "weight": 0.35},
-            "rainIndex": {"ideal": 0.45, "weight": 0.35},
-            "drainageIndex": {"ideal": 0.65, "weight": 0.35},
-            "areaIndex": {"ideal": 0.6, "weight": 0.2},
-        }
-
     return base
 
 
@@ -207,6 +155,8 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
     sum_lum = 0.0
     sum_lum2 = 0.0
     sum_chroma = 0.0
+    edge_hits = 0
+    edge_samples = 0
 
     px = img_small.load()
     for y in range(0, h, stride):
@@ -224,10 +174,19 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
             sum_chroma += (mx - mn) / 255.0
             if g > r + 12 and g > b + 12:
                 greenish += 1
-            # Excess green (ExG): shaded foliage / canopy where strict g>r,b fails.
             exg = 2 * g - r - b
             if exg > 20:
                 exg_hits += 1
+            if x + stride < w:
+                r2, g2, b2 = px[x + stride, y]
+                edge_samples += 1
+                if abs(r - r2) + abs(g - g2) + abs(b - b2) > 48:
+                    edge_hits += 1
+            if y + stride < h:
+                r2, g2, b2 = px[x, y + stride]
+                edge_samples += 1
+                if abs(r - r2) + abs(g - g2) + abs(b - b2) > 48:
+                    edge_hits += 1
 
     if total == 0:
         return {
@@ -241,6 +200,8 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
             "luminanceStd": 0.2,
             "organicTextureIndex": 0.0,
             "exgRatio": 0.0,
+            "edgeDensity": 0.0,
+            "brownIndex": 0.0,
         }
 
     green_ratio = greenish / total
@@ -271,6 +232,9 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
     concrete_likelihood = _clamp01(base_concrete * (1.0 - 0.74 * organic_texture))
 
     vegetation_index = _clamp01(max(green_ratio, exg_ratio * 0.92))
+    blue_index = _clamp01((mean_b / denom) * 3.0)
+    brown_index = _clamp01((mean_r - (mean_g + mean_b) / 2.0) / 128.0)
+    edge_density = _clamp01(edge_hits / edge_samples) if edge_samples else 0.0
 
     return {
         "vegetationIndex": vegetation_index,
@@ -279,10 +243,13 @@ def compute_signals_from_image(img: Image.Image) -> dict[str, float]:
         "greenRatio": _clamp01(green_ratio),
         "exgRatio": _clamp01(exg_ratio),
         "meanLuminance": _clamp01(mean_lum),
+        "blueIndex": blue_index,
+        "brownIndex": brown_index,
         "concreteLikelihood": concrete_likelihood,
         "surfaceChroma": _clamp01(mean_chroma),
         "luminanceStd": float(min(1.0, lum_std * 2.5)),
         "organicTextureIndex": organic_texture,
+        "edgeDensity": edge_density,
     }
 
 
@@ -296,7 +263,7 @@ def _penalty(seedling: dict[str, Any], signals: dict[str, float]) -> float:
         d = signals[key] - float(spec["ideal"])
         penalty += w * d * d
 
-    # Extra context-driven penalty (weather/area/soil). Only applies when those signals exist.
+    # Extra context-driven penalty (weather / site area). Only applies when those signals exist.
     env = _environment_profile(seedling)
     for key, spec in env.items():
         if key not in signals or spec.get("ideal") is None:
@@ -316,7 +283,12 @@ def _to_public(seedling: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _unsuitable_for_planting(signals: dict[str, float]) -> tuple[bool, str]:
+def _unsuitable_for_planting(
+    signals: dict[str, float],
+    capture_validity: dict | None = None,
+) -> tuple[bool, str]:
+    if capture_validity and not capture_validity.get("isValidFieldCapture", True):
+        return True, str(capture_validity.get("reason") or "Not a valid field capture.")
     veg = float(signals.get("vegetationIndex", 0.0))
     conc = float(signals.get("concreteLikelihood", 0.0))
     org = float(signals.get("organicTextureIndex", 0.0))
@@ -324,7 +296,7 @@ def _unsuitable_for_planting(signals: dict[str, float]) -> tuple[bool, str]:
         return (
             True,
             "This capture looks like hardscape (concrete/asphalt): very low vegetation "
-            "and flat, low-color cues. Seedlings need soil—not paved surfaces.",
+            "and flat, low-color cues. Not a plantable forest area.",
         )
     if conc >= 0.78 and org < 0.24 and veg < 0.16:
         return (
@@ -339,47 +311,37 @@ def _match_percent(penalty: float, max_p: float) -> int:
     return int(round(100.0 * _clamp01(1.0 - penalty / (max_p * 1.35))))
 
 
-def _rationale(signals: dict[str, float], top: dict[str, Any]) -> str:
+def _rationale(
+    signals: dict[str, float],
+    top: dict[str, Any],
+    *,
+    penro_label: str | None = None,
+) -> str:
     veg = round(signals["vegetationIndex"] * 100)
     sun = round(signals["openSunIndex"] * 100)
-    wet = round(signals["moistureHint"] * 100)
-    parts = [
-        f"Scene cues: vegetation ~{veg}%, open-sun exposure ~{sun}%, moisture proxy ~{wet}%.",
-    ]
+    parts: list[str] = []
+    if penro_label:
+        parts.append(penro_label)
+    parts.append(
+        f"Aerial cues: vegetation ~{veg}%, open ground ~{sun}%.",
+    )
     if "temperatureC" in signals or "humidityPct" in signals or "precipitationMm" in signals:
         temp = f"{signals.get('temperatureC', float('nan')):.0f}°C" if "temperatureC" in signals else "n/a"
         hum = f"{signals.get('humidityPct', float('nan')):.0f}%" if "humidityPct" in signals else "n/a"
         rain = f"{signals.get('precipitationMm', float('nan')):.1f}mm" if "precipitationMm" in signals else "n/a"
         parts.append(f"Weather now: temp {temp}, humidity {hum}, precip {rain}.")
     if "areaM2" in signals:
-        parts.append(f"Area: ~{signals['areaM2']:.0f} m².")
-    if "soilPh" in signals or "drainageIndex" in signals or "textureIndex" in signals:
-        soil_bits = []
-        if "soilPh" in signals:
-            soil_bits.append(f"pH {signals['soilPh']:.1f}")
-        if "drainageIndex" in signals:
-            soil_bits.append("drainage considered")
-        if "textureIndex" in signals:
-            soil_bits.append("texture considered")
-        if soil_bits:
-            parts.append("Soil: " + ", ".join(soil_bits) + ".")
+        parts.append(f"Assessed site area ~{signals['areaM2']:.0f} m².")
 
-    parts.append(f"Best match: {top['commonName']} — {top['notes']}")
+    parts.append(f"Top match on DENR contract list: {top['commonName']} — {top['notes']}")
     return " ".join(parts)
 
 
-_DEFAULT_CAPTURE_AREA_M2 = 250.0
-_SEEDLING_SPACING_M2 = 4.0
-
-
-def _estimated_seedlings_needed(signals: dict[str, Any]) -> int:
-    """Heuristic stocking count from assessed plot area (~2 m × 2 m spacing when area is known)."""
-    raw = signals.get("areaM2")
-    try:
-        area = float(raw) if raw is not None else _DEFAULT_CAPTURE_AREA_M2
-    except (TypeError, ValueError):
-        area = _DEFAULT_CAPTURE_AREA_M2
-    return max(1, int(math.ceil(area / _SEEDLING_SPACING_M2)))
+def _penro_context_label(penro_plot: dict[str, Any] | None) -> str:
+    if not penro_plot:
+        return "Select an NGP site to rank DENR PENRO contract species."
+    site = penro_plot.get("site_code") or penro_plot.get("plot_code") or "NGP site"
+    return f"NGP site {site} — species ranked from DENR PENRO contract list."
 
 
 def recommend_from_bytes(
@@ -388,26 +350,33 @@ def recommend_from_bytes(
     longitude: float | None,
     *,
     area_m2: float | None = None,
-    soil: dict[str, Any] | None = None,
+    penro_plot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    catalog = _load_catalog()
     img = Image.open(BytesIO(image_bytes))
     signals = compute_signals_from_image(img)
 
-    # Environment signals (GrowCalendar-style context: weather + declared soil/area).
     if latitude is not None and longitude is not None:
         signals |= _fetch_weather_signals(latitude, longitude)
-    signals |= _compute_area_soil_signals(area_m2=area_m2, soil=soil)
+    signals |= _compute_area_signals(area_m2=area_m2)
 
-    penalties = [(s, _penalty(s, signals)) for s in catalog["seedlings"]]
-    penalties.sort(key=lambda x: x[1])
-    max_p = max((p for _, p in penalties), default=1e-6)
-    ranked_seedlings = [
-        {"seedling": _to_public(s), "matchPercent": _match_percent(p, max_p)}
-        for s, p in penalties
-    ]
+    capture_validity = assess_capture_validity(signals)
+    seedlings = build_seedlings_from_penro_plot(penro_plot) if penro_plot else []
+    penro_label = _penro_context_label(penro_plot)
+    penro_context = {
+        "siteCode": (penro_plot or {}).get("site_code") or (penro_plot or {}).get("plot_code"),
+        "source": "selected" if penro_plot else "none",
+        "label": penro_label,
+    }
 
-    unsuitable, unsuitable_reason = _unsuitable_for_planting(signals)
+    def _estimate() -> int | None:
+        if not capture_validity.get("isValidFieldCapture", True):
+            return None
+        return estimate_seedlings_from_penro_plot(
+            penro_plot,
+            area_m2=signals.get("areaM2"),
+        )
+
+    unsuitable, unsuitable_reason = _unsuitable_for_planting(signals, capture_validity)
     if unsuitable:
         out: dict[str, Any] = {
             "source": "remote",
@@ -419,12 +388,43 @@ def recommend_from_bytes(
             "confidence": 0.0,
             "rationale": unsuitable_reason,
             "signals": {**signals},
+            "captureValidity": capture_validity,
+            "penroContext": penro_context,
         }
         if latitude is not None and longitude is not None:
             out["signals"]["latitude"] = latitude
             out["signals"]["longitude"] = longitude
-        out["estimatedSeedlingsNeeded"] = _estimated_seedlings_needed(out["signals"])
+        out["estimatedSeedlingsNeeded"] = _estimate()
         return out
+
+    if not seedlings:
+        out = {
+            "source": "remote",
+            "unsuitableForPlanting": False,
+            "unsuitableReason": None,
+            "recommended": None,
+            "alternatives": [],
+            "rankedSeedlings": [],
+            "confidence": 0.0,
+            "rationale": penro_label,
+            "signals": {**signals},
+            "captureValidity": capture_validity,
+            "penroContext": penro_context,
+            "denrPlotRequired": True,
+        }
+        if latitude is not None and longitude is not None:
+            out["signals"]["latitude"] = latitude
+            out["signals"]["longitude"] = longitude
+        out["estimatedSeedlingsNeeded"] = _estimate()
+        return out
+
+    penalties = [(s, _penalty(s, signals)) for s in seedlings]
+    penalties.sort(key=lambda x: x[1])
+    max_p = max((p for _, p in penalties), default=1e-6)
+    ranked_seedlings = [
+        {"seedling": _to_public(s), "matchPercent": _match_percent(p, max_p)}
+        for s, p in penalties
+    ]
 
     best, best_p = penalties[0]
     confidence = _clamp01(1.0 - best_p / (max_p * 1.35))
@@ -437,11 +437,13 @@ def recommend_from_bytes(
         "alternatives": [_to_public(s) for s, _ in penalties[1:4]],
         "rankedSeedlings": ranked_seedlings,
         "confidence": confidence,
-        "rationale": _rationale(signals, best),
+        "rationale": _rationale(signals, best, penro_label=penro_label),
         "signals": {**signals},
+        "captureValidity": capture_validity,
+        "penroContext": penro_context,
     }
     if latitude is not None and longitude is not None:
         out["signals"]["latitude"] = latitude
         out["signals"]["longitude"] = longitude
-    out["estimatedSeedlingsNeeded"] = _estimated_seedlings_needed(out["signals"])
+    out["estimatedSeedlingsNeeded"] = _estimate()
     return out

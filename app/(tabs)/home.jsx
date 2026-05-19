@@ -11,22 +11,22 @@ import {
 	View,
 } from 'react-native';
 import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from '../../lib/supabase';
 import { SURVEY_LATITUDE, SURVEY_LONGITUDE } from '../../lib/surveyLocation';
 import { theme } from '../../lib/theme';
+import { fetchCurrentUserProfile } from '../../lib/userProfile';
 import { fetchWeatherForDashboard } from '../../lib/weather';
 
 const QUICK_ACTIONS = [
 	{
 		key: 'acquire',
-		label: 'Mobile data\nacquisition',
+		label: 'Field capture\n& plantability',
 		route: '/capture',
 		icon: 'grid-outline',
 		highlighted: true,
 	},
 	{
 		key: 'progress',
-		label: 'Seedling\nprogress',
+		label: 'Survival &\nhealth trends',
 		route: '/seedling-progress',
 		icon: 'leaf-outline',
 		highlighted: false,
@@ -58,20 +58,17 @@ export default function HomeScreen() {
 	const router = useRouter();
 	const [menuOpen, setMenuOpen] = React.useState(false);
 	const [displayName, setDisplayName] = React.useState('Field officer');
+	const [roleLabel, setRoleLabel] = React.useState('Field officer');
 	const [weatherLine, setWeatherLine] = React.useState(null);
 	const [weatherLoading, setWeatherLoading] = React.useState(true);
 
 	React.useEffect(() => {
 		let cancelled = false;
 		(async () => {
-			const { data } = await supabase.auth.getUser();
-			if (cancelled || !data?.user) return;
-			const meta = data.user.user_metadata ?? {};
-			const name =
-				meta.full_name?.trim() ||
-				data.user.email?.split('@')[0] ||
-				'Field officer';
-			setDisplayName(name);
+			const profile = await fetchCurrentUserProfile();
+			if (cancelled) return;
+			setDisplayName(profile.displayName);
+			setRoleLabel(profile.roleLabel);
 		})();
 		return () => {
 			cancelled = true;
@@ -103,8 +100,9 @@ export default function HomeScreen() {
 				showsVerticalScrollIndicator={false}>
 				<View style={styles.topBar}>
 					<View>
-						<Text style={styles.brandSmall}>DENR-CENRO</Text>
+						<Text style={styles.brandSmall}>DENR-CENRO · Culasi</Text>
 						<Text style={styles.greeting}>Welcome, {displayName}.</Text>
+						<Text style={styles.roleLine}>{roleLabel}</Text>
 					</View>
 					<TouchableOpacity
 						onPress={() => setMenuOpen(true)}
@@ -125,7 +123,7 @@ export default function HomeScreen() {
 						{weatherLoading ? 'Loading conditions…' : weatherLine}
 					</Text>
 					<Text style={styles.weatherFoot}>
-						Open-Meteo (no API key). Matches recommendation weather signals.
+						Open-Meteo (no API key). Supports survival monitoring context only.
 					</Text>
 				</View>
 
@@ -268,6 +266,12 @@ const styles = StyleSheet.create({
 		fontWeight: '700',
 		marginTop: 6,
 		maxWidth: 280,
+	},
+	roleLine: {
+		color: theme.textMuted,
+		fontSize: 13,
+		fontWeight: '600',
+		marginTop: 4,
 	},
 	iconBtn: { padding: 4 },
 	weatherCard: {

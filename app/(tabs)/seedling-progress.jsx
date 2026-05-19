@@ -12,15 +12,28 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { fetchReforestationPlots } from "../../lib/reforestationPlots";
+import {
+  compareSurvivalToPenro,
+  fieldSurvivalPercentFromStatus,
+  healthLabelFromStatus,
+} from "../../lib/survivalMonitoring";
 import { supabase } from "../../lib/supabase";
 import { theme } from "../../lib/theme";
 
 const STATUSES = ["planned", "planted", "growing", "monitored"];
 
+function healthTone(label) {
+  if (label === "healthy") return styles.healthHealthy;
+  if (label === "at_risk") return styles.healthAtRisk;
+  return styles.healthPending;
+}
+
 export default function SeedlingProgressScreen() {
   const router = useRouter();
   const [loading, setLoading] = React.useState(true);
   const [rows, setRows] = React.useState([]);
+  const [plotsById, setPlotsById] = React.useState({});
   const [draftNotes, setDraftNotes] = React.useState({});
 
   const load = React.useCallback(async () => {
@@ -30,22 +43,30 @@ export default function SeedlingProgressScreen() {
         data: { session },
       } = await supabase.auth.getSession();
       const uid = session?.user?.id;
-      if (!uid) {
-        setRows([]);
-        return;
-      }
-      const { data, error } = await supabase
-        .from("seedling_progress")
-        .select("*")
-        .eq("user_id", uid)
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
-      setRows(data ?? []);
+      const [plotList, progressRes] = await Promise.all([
+        fetchReforestationPlots().catch(() => []),
+        uid
+          ? supabase
+              .from("seedling_progress")
+              .select("*")
+              .eq("user_id", uid)
+              .order("updated_at", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
       const map = {};
-      (data ?? []).forEach((r) => {
-        map[r.id] = r.notes ?? "";
+      (plotList ?? []).forEach((p) => {
+        map[p.id] = p;
       });
-      setDraftNotes(map);
+      setPlotsById(map);
+
+      if (progressRes.error) throw progressRes.error;
+      setRows(progressRes.data ?? []);
+      const notes = {};
+      (progressRes.data ?? []).forEach((r) => {
+        notes[r.id] = r.notes ?? "";
+      });
+      setDraftNotes(notes);
     } catch (e) {
       console.warn(e);
       Alert.alert("Progress", e?.message ?? "Could not load records.");
@@ -102,7 +123,7 @@ export default function SeedlingProgressScreen() {
         ) : (
           <View style={styles.backBtn} />
         )}
-        <Text style={styles.title}>Seedling progress</Text>
+        <Text style={styles.title}>Survival & health</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -116,53 +137,89 @@ export default function SeedlingProgressScreen() {
           showsVerticalScrollIndicator={false}
         >
           <Text style={styles.lead}>
-            Track status and notes for seedlings you chose from recommendations.
+            Monitor seedling survival rates and health trends. Field status is compared to
+            PENRO NGP baseline survival for each site.
           </Text>
 
           {!rows.length ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>
-                No seedlings tracked yet. Capture a plantable scene, pick a
-                recommended seedling, then confirm to add it here.
+                No seedlings tracked yet. Capture an aerial view of a plantable area, confirm a
+                species, then update status here as you monitor survival.
               </Text>
             </View>
           ) : null}
 
-          {rows.map((row) => (
-            <View key={row.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{row.common_name || row.seedling_id}</Text>
-              {row.scientific_name ? (
-                <Text style={styles.cardSci}>{row.scientific_name}</Text>
-              ) : null}
+          {rows.map((row) => {
+            const plot = row.plot_id ? plotsById[row.plot_id] : null;
+            const fieldPct = fieldSurvivalPercentFromStatus(row.status);
+            const penroRate = plot?.latest_survival_rate;
+            const comparison = compareSurvivalToPenro(
+              fieldPct,
+              typeof penroRate === "number" ? penroRate : null,
+            );
+            const health = healthLabelFromStatus(row.status);
 
-              <TouchableOpacity
-                style={styles.statusBtn}
-                onPress={() => cycleStatus(row)}
-              >
-                <Text style={styles.statusLabel}>Status</Text>
-                <Text style={styles.statusValue}>{row.status}</Text>
-                <Text style={styles.statusHint}>Tap to cycle</Text>
-              </TouchableOpacity>
+            return (
+              <View key={row.id} style={styles.card}>
+                <Text style={styles.cardTitle}>{row.common_name || row.seedling_id}</Text>
+                {row.scientific_name ? (
+                  <Text style={styles.cardSci}>{row.scientific_name}</Text>
+                ) : null}
+                {plot ? (
+                  <Text style={styles.plotRef}>
+                    NGP {plot.site_code ?? plot.plot_code}
+                    {penroRate != null
+                      ? ` · PENRO survival ${Math.round(Number(penroRate) * 100)}%`
+                      : ""}
+                  </Text>
+                ) : null}
 
-              <Text style={styles.notesLabel}>Notes</Text>
-              <TextInput
-                style={styles.notesInput}
-                multiline
-                placeholder="Observations, watering, inspections…"
-                placeholderTextColor={theme.textMuted}
-                value={draftNotes[row.id] ?? ""}
-                onChangeText={(t) =>
-                  setDraftNotes((prev) => ({ ...prev, [row.id]: t }))
-                }
-              />
-              <TouchableOpacity
-                style={styles.saveBtn}
-                onPress={() => saveNotes(row)}
-              >
-                <Text style={styles.saveBtnText}>Save notes</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
+                <View style={styles.survivalRow}>
+                  <View style={styles.survivalBox}>
+                    <Text style={styles.survivalLabel}>Field survival (est.)</Text>
+                    <Text style={styles.survivalValue}>
+                      {fieldPct != null ? `${fieldPct}%` : "—"}
+                    </Text>
+                  </View>
+                  <View style={styles.survivalBox}>
+                    <Text style={styles.survivalLabel}>Health trend</Text>
+                    <Text style={[styles.healthBadge, healthTone(health)]}>
+                      {health === "healthy"
+                        ? "Healthy"
+                        : health === "at_risk"
+                          ? "At risk"
+                          : "Planned"}
+                    </Text>
+                  </View>
+                </View>
+                {comparison.deltaPct != null ? (
+                  <Text style={styles.trendLine}>{comparison.label}</Text>
+                ) : null}
+
+                <TouchableOpacity style={styles.statusBtn} onPress={() => cycleStatus(row)}>
+                  <Text style={styles.statusLabel}>Monitoring status</Text>
+                  <Text style={styles.statusValue}>{row.status}</Text>
+                  <Text style={styles.statusHint}>Tap to cycle · tracks survival trend</Text>
+                </TouchableOpacity>
+
+                <Text style={styles.notesLabel}>Field observations</Text>
+                <TextInput
+                  style={styles.notesInput}
+                  multiline
+                  placeholder="Mortality, pests, watering, canopy change…"
+                  placeholderTextColor={theme.textMuted}
+                  value={draftNotes[row.id] ?? ""}
+                  onChangeText={(t) =>
+                    setDraftNotes((prev) => ({ ...prev, [row.id]: t }))
+                  }
+                />
+                <TouchableOpacity style={styles.saveBtn} onPress={() => saveNotes(row)}>
+                  <Text style={styles.saveBtnText}>Save notes</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -218,17 +275,58 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontStyle: "italic",
     marginTop: 2,
-    marginBottom: 12,
+  },
+  plotRef: {
+    color: theme.accentDark,
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  survivalRow: { flexDirection: "row", gap: 10, marginBottom: 8 },
+  survivalBox: {
+    flex: 1,
+    backgroundColor: theme.accentSurface,
+    borderRadius: 12,
+    padding: 10,
+  },
+  survivalLabel: { color: theme.textMuted, fontSize: 10, fontWeight: "700" },
+  survivalValue: {
+    color: theme.accentDark,
+    fontSize: 22,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  healthBadge: {
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 6,
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  healthHealthy: { backgroundColor: "#C8E6C9", color: "#1B5E20" },
+  healthAtRisk: { backgroundColor: "#FFE0B2", color: "#E65100" },
+  healthPending: { backgroundColor: "#E0E0E0", color: "#424242" },
+  trendLine: {
+    color: theme.textMuted,
+    fontSize: 12,
+    marginBottom: 10,
+    fontStyle: "italic",
   },
   statusBtn: {
-    backgroundColor: theme.accentSurface,
+    backgroundColor: theme.bg,
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   statusLabel: { color: theme.textMuted, fontSize: 11, fontWeight: "700" },
   statusValue: {
-    color: theme.accentDark,
+    color: theme.text,
     fontSize: 16,
     fontWeight: "800",
     textTransform: "capitalize",

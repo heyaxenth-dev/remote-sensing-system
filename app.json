@@ -26,6 +26,12 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow DENR-CENRO Culasi field staff to record accurate GPS coordinates for reforestation plot monitoring."
+        }
+      ],
       "expo-router",
       [
         "expo-splash-screen",
